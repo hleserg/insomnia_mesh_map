@@ -653,9 +653,9 @@ function draw(){
     const s=covCache.step*view.s+1;
     covCache.cells.forEach(c=>{
       const m=c[2];   // запас wifi-бюджета, dB
-      if(m<0){ctx.fillStyle='rgba(210,153,34,.13)';}
-      else if(m<10){ctx.fillStyle='rgba(88,166,255,.13)';}
-      else{ctx.fillStyle='rgba(88,166,255,.22)';}
+      if(m<0){ctx.fillStyle='rgba(210,153,34,.20)';}
+      else if(m<10){ctx.fillStyle='rgba(88,166,255,.24)';}
+      else{ctx.fillStyle='rgba(88,166,255,.40)';}
       ctx.fillRect(sx(c[0])-s/2,sy(c[1])-s/2,s,s);});
   }
   if(LAY.fast){ctx.setLineDash([4,4]);ctx.strokeStyle='rgba(88,166,255,.5)';
