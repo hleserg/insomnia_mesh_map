@@ -286,6 +286,8 @@ let view={cx:(VW[0]+VW[2])/2, cy:(VW[1]+VW[3])/2, s:0.25};
 let W=0,H=0,DPR=1;
 
 const lam=()=>300/R.fMHz;
+// безопасное приведение числовых полей узла (импорт может принести строки и мусор)
+const num=(v,dflt)=>Number.isFinite(+v)?+v:dflt;
 // [Fix-13] Метрика WGS-84: вшитые координаты — метры локальной проекции с константами
 // генерации данных (110574 и 111320·K); истинный метр на широте 54.68° длиннее:
 // 1° широты = 111317.6 м (+0.67%), 1° долготы = 64502.4 м (+0.22%). Геопривязка данных
@@ -326,10 +328,17 @@ const ux=px=>(px-W/2)/view.s+view.cx, uy=py=>-(py-H/2)/view.s+view.cy;
 
 // ---------- рельеф ----------
 const BD=DATA.dem;
+// [Fix-15] Вне окна DEM раньше возвращалась высота ПЕРВОЙ ячейки (175 м) — произвольная
+// константа, дававшая ложный «плоский рельеф» на любом удалении. Теперь координата
+// зажимается к краю окна (nearest-edge), а факт выхода отмечается флагом demOut.
+let demOut=false;
 function bground(x,y){
   const la=w2lat(y), lo=w2lng(x);
-  const fi=(la-BD.la0)/BD.st, fj=(lo-BD.lo0)/BD.st;
-  if(fi<0||fj<0||fi>BD.nr-1||fj>BD.nc-1) return BD.z[0];
+  let fi=(la-BD.la0)/BD.st, fj=(lo-BD.lo0)/BD.st;
+  if(fi<0||fj<0||fi>BD.nr-1||fj>BD.nc-1){
+    demOut=true;
+    fi=Math.max(0,Math.min(BD.nr-1,fi)); fj=Math.max(0,Math.min(BD.nc-1,fj));
+  }
   const i0=Math.floor(fi), j0=Math.floor(fj), a=fi-i0, b=fj-j0;
   const i1=Math.min(i0+1,BD.nr-1), j1=Math.min(j0+1,BD.nc-1);
   const g=(i,j)=>BD.z[i*BD.nc+j];
@@ -338,11 +347,25 @@ function bground(x,y){
 function ground(x,y){
   if(!dem) return BD? bground(x,y) : 0;
   const la=w2lat(y), ln=w2lng(x), n=dem.n;
-  const r=(dem.lat+1-la)*(n-1), c=(ln-dem.lng)*(n-1);
-  if(r<0||c<0||r>n-1||c>n-1) return dem.base;
+  let r=(dem.lat+1-la)*(n-1), c=(ln-dem.lng)*(n-1);
+  if(r<0||c<0||r>n-1||c>n-1){                      // [Fix-15] край тайла вместо среднего
+    demOut=true;
+    r=Math.max(0,Math.min(n-1,r)); c=Math.max(0,Math.min(n-1,c));
+  }
   const r0=Math.floor(r), c0=Math.floor(c), fr=r-r0, fc=c-c0;
   const r1=Math.min(r0+1,n-1), c1=Math.min(c0+1,n-1);
-  const g=(rr,cc)=>{const v=dem.d[rr*n+cc]; return v===-32768?dem.base:v;};
+  // [Fix-16] void (-32768) заполняется соседями по строке/столбцу, а не средним всего тайла
+  const raw=(rr,cc)=>dem.d[rr*n+cc];
+  const g=(rr,cc)=>{
+    if(raw(rr,cc)!==-32768) return raw(rr,cc);
+    for(let k=1;k<=4;k++){
+      for(const [dr,dc] of [[0,k],[0,-k],[k,0],[-k,0]]){
+        const R2=rr+dr, C2=cc+dc;
+        if(R2>=0&&R2<n&&C2>=0&&C2<n&&raw(R2,C2)!==-32768) return raw(R2,C2);
+      }
+    }
+    return dem.base;
+  };
   return g(r0,c0)*(1-fr)*(1-fc)+g(r0,c1)*(1-fr)*fc+g(r1,c0)*fr*(1-fc)+g(r1,c1)*fr*fc;
 }
 function parseHGT(buf,name){
@@ -369,11 +392,19 @@ function inPoly(x,y,p){let c=false;
     if((p[i][1]>y)!==(p[j][1]>y) && x<(p[j][0]-p[i][0])*(y-p[i][1])/(p[j][1]-p[i][1])+p[i][0]) c=!c;}
   return c;}
 const FM=DATA.fmask;
-function inForest(x,y){
+// [Fix-17] Три состояния грунта вместо двух: вне растровой маски мы не знаем, что там —
+// 'unknown' трактуется в расчёте как открыто (как раньше), но UI об этом честно предупреждает.
+function inMask(x,y){
   const ix=Math.round((x-FM.x0)/FM.step), iy=Math.round((y-FM.y0)/FM.step);
-  if(ix>=0&&ix<FM.nx&&iy>=0&&iy<FM.ny&&FM.mask.charCodeAt(iy*FM.nx+ix)===49) return true;
-  return groves.some(g=>Math.hypot(g.x-x,g.y-y)<=g.r);
+  return ix>=0&&ix<FM.nx&&iy>=0&&iy<FM.ny;
 }
+function forestState(x,y){
+  if(groves.some(g=>Math.hypot(g.x-x,g.y-y)<=g.r)) return 'forest';
+  if(!inMask(x,y)) return 'unknown';
+  const ix=Math.round((x-FM.x0)/FM.step), iy=Math.round((y-FM.y0)/FM.step);
+  return FM.mask.charCodeAt(iy*FM.nx+ix)===49?'forest':'open';
+}
+function inForest(x,y){ return forestState(x,y)==='forest'; }
 
 // ---------- радио ----------
 // Физика v2 — обоснование каждого блока и цифры аудита в docs/audit.md.
@@ -384,12 +415,18 @@ function J(v){ return v>-0.78 ? 6.9+20*Math.log10(Math.sqrt((v-0.1)*(v-0.1)+1)+v
 // вердикты расходились до 1.3 dB, роща 60 м могла целиком проскочить между точками (−12.8 dB).
 function profileOf(A,B){
   const d=dist(A.x,A.y,B.x,B.y);
-  const N=Math.max(16,Math.min(400,Math.round(d/6)));
+  // [Fix-18] Потолок был 400 точек: на 5 км шаг вырождался в 12.5 м, на 60 км — в 150 м,
+  // мимо лесной маски с ячейкой 15 м. Держим шаг 6 м до 12 км, дальше ограничиваем 2000.
+  const N=Math.max(16,Math.min(2000,Math.round(d/6)));
   const foA=inForest(A.x,A.y), foB=inForest(B.x,B.y);
   const excl=Math.min(40,d*0.15);   // ITU-R P.833: полог прямо над антенной — это связь в полог, не лезвие
   const pts=[];
-  for(let i=1;i<N;i++){
-    const t=i/N, x=A.x+(B.x-A.x)*t, y=A.y+(B.y-A.y)*t;
+  // [Fix-19] Точки — СЕРЕДИНЫ N равных отрезков, каждая с весом d/N. Раньше брались
+  // внутренние узлы: трасса покрывалась не полностью (терялся хвост d/N), и множество
+  // точек было несимметрично относительно перестановки A↔B — запас плавал до 1.4 dB.
+  // Середины отрезков зеркальны сами себе, поэтому модель стала взаимной.
+  for(let i=0;i<N;i++){
+    const t=(i+0.5)/N, x=A.x+(B.x-A.x)*t, y=A.y+(B.y-A.y)*t;
     const g=ground(x,y), fo=inForest(x,y), u=d*t;
     const s=g+(fo?R.canopy:0);
     const se=((foA&&u<excl)||(foB&&u>d-excl))?g:s;
@@ -418,7 +455,10 @@ function diffractionLoss(pts,key,d,zA,zB){
   if(vmax<=0){   // просвет есть: краевое затухание по максимальному v
     return {L:vmax>-0.78?J(vmax):0, vmax, uAp:pts[im].u, zAp:pts[im][key]};
   }
-  let u=(zB-zA+sB*d)/(sA+sB);
+  // [Fix-20] почти параллельные горизонтные лучи: sA+sB→0 давало Infinity и рывок ребра
+  // к краю трассы; в этом случае ребро ставим в точку максимального v.
+  const den=sA+sB;
+  let u=Math.abs(den)<1e-9 ? pts[im].u : (zB-zA+sB*d)/den;
   u=Math.min(Math.max(u,d*0.02),d*0.98);
   const z=zA+sA*u;
   const v=(z-(zA+(zB-zA)*u/d))*Math.sqrt(2*d/(lam()*u*(d-u)));
@@ -434,29 +474,30 @@ function diffractionLoss(pts,key,d,zA,zB){
 // Подъём антенны над полог обнуляет вход → программа честно показывает эффект
 // «поднять узел» и «вынести узел из леса».
 function vegLoss(len){ return R.fAm*(1-Math.exp(-len*R.forest/R.fAm)); }
+// [Fix-19] Интегрирование по серединам ВСЕХ N отрезков, включая хвост до второй антенны:
+// раньше цикл кончался на последней внутренней точке и терял d/N (до 0.55 dB на коротком
+// лесном отрезке), а результат зависел от того, с какого конца считать трассу (нарушение
+// взаимности до 1.0 dB). Теперь длина леса симметрична относительно перестановки A↔B.
 function vegStretches(pts,d,zA,zB){
-  const st=[]; let cur=null, prevU=0;
+  const st=[]; let cur=null; const du=d/pts.length;   // каждая точка — середина отрезка d/N
   for(const p of pts){
-    const zl=zA+(zB-zA)*p.t;
-    const inLayer=p.fo&&zl<p.s;               // прямой луч ниже верха крон
-    const du=p.u-prevU; prevU=p.u;
-    if(inLayer){ if(cur){cur.len+=du;} else cur={len:du}; }
+    const inLayer=p.fo&&(zA+(zB-zA)*p.t)<p.s;         // прямой луч ниже верха крон
+    if(inLayer){ if(cur) cur.len+=du; else cur={len:du}; }
     else if(cur){ st.push(cur); cur=null; }
   }
   if(cur) st.push(cur);
   return st;
 }
 function escapeLen(pts,fromEnd,uAp,zAp,zT,sT,d){
-  // длина леса, которую луч антенна→доминирующее ребро крон проходит внутри слоя крон
-  let len=0, prevU=fromEnd?d:0;
-  const u0=fromEnd?d:0;
+  // длина леса, которую луч антенна→доминирующее ребро крон проходит внутри слоя крон;
+  // веса отрезков равны d/N, поэтому результат не зависит от направления обхода
+  let len=0; const du=d/pts.length, u0=fromEnd?d:0;
   for(let k=0;k<pts.length;k++){
     const p=pts[fromEnd?pts.length-1-k:k];
     const between=fromEnd?(p.u>uAp):(p.u<uAp);
     if(!between) break;
     const zr=zT+(zAp-zT)*Math.abs(p.u-u0)/Math.max(1,Math.abs(uAp-u0));
-    if(p.fo&&zr<p.s) len+=Math.abs(p.u-prevU);
-    prevU=p.u;
+    if(p.fo&&zr<p.s) len+=du;
   }
   return Math.max(len, 2*Math.max(0,sT-zT));
 }
@@ -515,20 +556,35 @@ function clutterLoss(A,B){
   return R.clutter*(f(A)+f(B))/2;
 }
 
+// [Fix-22] Взаимность по построению: физика линка не может зависеть от того, с какого
+// конца её считать. Расчёт всегда идёт в каноническом порядке (запад→восток), результат
+// при необходимости зеркалится. Остаточная асимметрия дискретизации была до 1.4 dB.
 function link(A,B,opt){
+  const swap=(A.x>B.x)||(A.x===B.x&&A.y>B.y);
+  if(!swap) return linkCore(A,B,opt);
+  const r=linkCore(B,A,opt);
+  return Object.assign({},r,{nrA:r.nrB,nrB:r.nrA,gA:r.gB,gB:r.gA,
+    heff:r.heff?[r.heff[1],r.heff[0]]:r.heff,
+    prof:r.prof?r.prof.map(p=>({...p,t:1-p.t,d:r.d-p.d})).reverse():null});
+}
+function linkCore(A,B,opt){
   opt=opt||{};
   const d=dist(A.x,A.y,B.x,B.y);
   if(d<1) return {d:0,margin:99,ok:true,fspl:0,ldif:0,lfor:0,lclt:0,prx:0,mech:'-',flen:0,nrA:0,nrB:0,dbp:20,prof:null};
   // [Fix-14] усиление антенн — в сторону корреспондента (взаимно для обоих направлений)
   const gA=gainToward(A,B.x,B.y), gB=gainToward(B,A.x,A.y);
-  const txp=(A.tx|0)+gA+gB;
+  // [Fix-21] было (A.tx|0): 13.8 dBm молча превращалось в 13 (и NaN — в 0)
+  const txA=num(A.tx,14), txB=num(B.tx,14);
+  const txp=txA+gA+gB;
   // [Fix-9] Ранний отсев по нижней границе потерь: FSPL ≤ реальные потери, бюджет — по
   // худшему направлению (min tx). При запросе профиля не выходим — он нужен для отрисовки.
-  const txMin=Math.min(A.tx|0,B.tx|0)+gA+gB;
+  const txMin=Math.min(txA,txB)+gA+gB;
   if(!opt.prof && txMin-fsplOf(d)-R.sens-R.margin < -40)
     return {d,margin:-999,ok:false,fspl:fsplOf(d),ldif:0,lfor:0,lclt:0,prx:-999,mech:'-',flen:0,nrA:0,nrB:0,dbp:20,prof:null};
+  demOut=false;                          // флаг «профиль вышел за DEM» — ставится в ground()
   const P=profileOf(A,B), pts=P.pts;
-  const zA=ground(A.x,A.y)+Math.max(1,A.h||1), zB=ground(B.x,B.y)+Math.max(1,B.h||1);
+  const zA=ground(A.x,A.y)+Math.max(1,num(A.h,1)), zB=ground(B.x,B.y)+Math.max(1,num(B.h,1));
+  const dOut=demOut;
   const fe=forestExcess(P,d,zA,zB);
   const eh=effHeights(pts,d,zA,zB);
   // точка зеркального отражения на МНК-плоскости; лес вокруг неё гасит отражение
@@ -541,15 +597,18 @@ function link(A,B,opt){
   const loss=pl+fe.excess+lclt;
   const nrA=noiseRise(A.x,A.y), nrB=noiseRise(B.x,B.y);
   const pAB=txp-loss, mAB=pAB-(R.sens+nrB)-R.margin;
-  const pBA=(B.tx|0)+gB+gA-loss, mBA=pBA-(R.sens+nrA)-R.margin;
+  const pBA=txB+gB+gA-loss, mBA=pBA-(R.sens+nrA)-R.margin;
   const margin=Math.min(mAB,mBA), prx=mAB<=mBA?pAB:pBA;
   let prof=null;
   if(opt.prof){
     prof=pts.map(p=>({t:p.t,d:p.u,g:p.g,s:p.s,fo:p.fo,z:zA+(zB-zA)*p.t,
       F:17.31*Math.sqrt((p.u/1000)*((d-p.u)/1000)/((R.fMHz/1000)*(d/1000)))}));
   }
-  return {d,fspl:pl,ldif:fe.ldif,lfor:fe.lfor,lclt,prx,vmax:fe.vmax,nrA,nrB,margin,dbp,
-          heff:[eh.hA,eh.hB],flen:fe.flen,mech:fe.mech,noRef,gA,gB,ok:margin>=0,prof};
+  // fspl — историческое имя поля: это ПОЛНЫЕ потери трассы (после перелома уже не FSPL),
+  // поэтому рядом отдаём и pl, и чистое свободное пространство freeSpace.
+  return {d,fspl:pl,pl,freeSpace:fsplOf(d),ldif:fe.ldif,lfor:fe.lfor,lclt,prx,vmax:fe.vmax,
+          nrA,nrB,margin,dbp,heff:[eh.hA,eh.hB],flen:fe.flen,mech:fe.mech,noRef,gA,gB,
+          demOut:dOut,ok:margin>=0,prof};
 }
 // Реалистичный предел подвеса: в лесу верёвка на дерево — до 6 м, на поляне только
 // строения — до 5 м (в чистом поле 3–4 м, и лучше вообще не ставить).
@@ -614,8 +673,12 @@ const WF={plmax:110, body:4, fMHz:2442, phoneH:1.5};
 const wfFspl=d=>32.44+20*Math.log10(WF.fMHz)+20*Math.log10(Math.max(d,1)/1000);
 function wfWeissberger(flen){ // dB, f в ГГц (модель MED, до 400 м листвы)
   const f=WF.fMHz/1000;
-  return flen<=0?0: flen<14 ? 0.45*Math.pow(f,0.284)*flen
-                            : 1.33*Math.pow(f,0.284)*Math.pow(Math.min(flen,400),0.588);
+  if(flen<=0) return 0;
+  if(flen<14) return 0.45*Math.pow(f,0.284)*flen;
+  // ветви модели расходятся на стыке 14 м (≈0.03 dB) — нормируем вторую, чтобы функция
+  // была непрерывной и монотонной
+  const k=(0.45*Math.pow(f,0.284)*14)/(1.33*Math.pow(f,0.284)*Math.pow(14,0.588));
+  return Math.max(1,k)*1.33*Math.pow(f,0.284)*Math.pow(Math.min(flen,400),0.588);
 }
 function wfPL(A,hAP,x,y){
   const d=dist(A.x,A.y,x,y);
@@ -943,6 +1006,7 @@ function ui(){
       <div class="hint">Реальный предел: лес ≤6 м (верёвка на дерево), поляна ≤5 м и только
         на строении. В чистом поле 3–4 м — лучше вообще не ставить.</div>
       ${n.h>hLimit(n)?'<div class="warnbox">⚠ подвес '+n.h+' м выше реального предела '+hLimit(n)+' м для этого места</div>':''}
+      ${forestState(n.x,n.y)==='unknown'?'<div class="warnbox">⚠ узел вне растровой маски леса — грунт неизвестен, считается открытым. Дорисуй заросли вручную, если там лес.</div>':''}
       <div class="row"><label>мощность TX</label><b><span id="vt">${n.tx}</span> dBm</b></div>
       <input type="range" id="nt" min="2" max="27" step="1" value="${n.tx}">
       <div class="row"><label>усиление антенны</label><b><span id="vg">${n.g}</span> dBi</b></div>
