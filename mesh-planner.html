@@ -2,6 +2,9 @@
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>mesh-планер · Бессонница</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 64 64%22%3E %3Crect width%3D%2264%22 height%3D%2264%22 rx%3D%2212%22 fill%3D%22%230d1117%22%2F%3E %3Cg stroke%3D%22%233fb950%22 stroke-width%3D%223%22 fill%3D%22none%22 opacity%3D%220.9%22%3E %3Cpath d%3D%22M18 44 L32 20 L46 40 M18 44 L46 40%22%2F%3E %3C%2Fg%3E %3Crect x%3D%2212%22 y%3D%2238%22 width%3D%2212%22 height%3D%2212%22 fill%3D%22%23153d20%22 stroke%3D%22%233fb950%22 stroke-width%3D%223%22%2F%3E %3Cg transform%3D%22rotate(45 32 20)%22%3E %3Crect x%3D%2226%22 y%3D%2214%22 width%3D%2212%22 height%3D%2212%22 fill%3D%22%233a2d0a%22 stroke%3D%22%23d29922%22 stroke-width%3D%223%22%2F%3E %3C%2Fg%3E %3Ccircle cx%3D%2246%22 cy%3D%2240%22 r%3D%227%22 fill%3D%22%2310263f%22 stroke%3D%22%2358a6ff%22 stroke-width%3D%223%22%2F%3E %3C%2Fsvg%3E">
+<link rel="apple-touch-icon" href="data:image/png;base64,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">
+<meta name="theme-color" content="#0d1117">
 <style>
 :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--ok:#3fb950;--warn:#d29922;
       --err:#f85149;--mute:#8b949e;--wifi:#58a6ff;--fg:#c9d1d9;--vio:#a371f7}
@@ -78,17 +81,39 @@ tr.r{cursor:pointer}tr.r:hover{background:#1c222b}tr.sel{background:#1f2a1f}
 #fclose:hover{color:var(--err)}
 #stog{float:right;margin-left:8px;padding:2px 8px}
 #mob{display:none}
-@media(max-width:760px){
-  #body{flex-direction:column}
-  #cv{flex:1 1 auto;min-height:0}
-  #side{flex:0 0 auto;max-height:44vh;border-left:0;border-top:1px solid var(--line);width:100%}
-  #mob{display:block}
-}
+/* Мобильный режим — отдельная компоновка, включается классом body.mob:
+   автоопределение по грубому указателю/ширине + ручной переключатель в шапке.
+   Десктопная вёрстка при этом не меняется вовсе. */
+body.mob #body{flex-direction:column}
+body.mob #cv{flex:1 1 auto;min-height:0}
+/* панель на мобильном не отъедает карту: скрыта, открывается кнопкой ☰ шторкой поверх */
+body.mob #side{display:none;position:fixed;left:0;right:0;bottom:0;top:auto;z-index:16;
+  max-height:66vh;width:100%;border-left:0;border-top:1px solid var(--line);
+  border-radius:12px 12px 0 0;box-shadow:0 -8px 24px rgba(0,0,0,.55);padding:10px 14px 28px}
+body.mob #side.open{display:block}
+body.mob #stog{display:none}
+#sopen{display:none;position:fixed;left:12px;bottom:12px;z-index:17;width:44px;height:44px;
+  border-radius:10px;background:var(--panel);border:1px solid var(--line);color:var(--ok);
+  font:20px/1 ui-monospace,monospace;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+body.mob #sopen{display:block}
+body.mob .btn{padding:10px 13px;font-size:13px}
+body.mob input[type=range]{height:32px}
+body.mob select,body.mob input[type=text],body.mob input[type=number]{font-size:14px;padding:9px 8px}
+body.mob .row label,body.mob .row b{font-size:12.5px}
+body.mob table{font-size:12px}
+body.mob td,body.mob th{padding:6px 5px}
+body.mob #float{left:0;right:0;bottom:0;top:auto;width:auto;max-width:none;
+  border-radius:12px 12px 0 0;border-bottom:0;max-height:54vh;overflow-y:auto;
+  padding:10px 14px 20px}
+body.mob #fhead{cursor:default}
+body.mob #profcv{height:104px}
+body.mob .lg{font-size:11px}
 </style></head><body>
 <div id="app">
 <header>
   <div class="enso">&#9711;</div>
   <button class="btn" id="stog">свернуть панель</button>
+  <button class="btn" id="mtog" style="float:right;margin-right:6px;padding:2px 8px">моб</button>
   <div class="cmd">mesh:~$ <b>planner</b> --site bessonnica --fw meshcore --band <span id="fq">868.7</span>MHz</div>
   <div id="stat"></div>
 </header>
@@ -210,6 +235,7 @@ tr.r{cursor:pointer}tr.r:hover{background:#1c222b}tr.sel{background:#1f2a1f}
   <canvas id="profcv"></canvas>
 </div>
 </div>
+<button id="sopen">&#9776;</button>
 <div id="float"><div id="fhead">ВЫБРАННОЕ <span id="fclose">&times;</span></div><div id="fbody"></div></div>
 <div id="drop"><div>брось сюда .hgt или .json проекта</div></div>
 <input type="file" id="fin" style="display:none">
@@ -520,18 +546,23 @@ function hLimit(n){ return inForest(n.x,n.y)?6:5; }
 // лучший путь (прямо в room server или через repeater — по расчёту).
 function applyAntennaPlan(){
   nodes=nodes.filter(n=>n.name!=='СЦЕНА СЕВЕР');
-  const rep=nodes.find(n=>n.role===2), rs=nodes.find(n=>n.role===1);
+  // Второй репитер (резерв + апгрейд): восточная поляна у Танцплощадки, позиция из
+  // tools/second-repeater.mjs — при отказе ГРЯДЫ сеть держит +21.8 dB вместо −5.
+  if(!nodes.some(n=>n.name==='РЕПИТЕР-ВОСТОК'))
+    nodes.push({name:'РЕПИТЕР-ВОСТОК',x:1229.7,y:33.9,role:2,h:4,tx:14,g:6,wifi:0,ant:0,az:0,
+      note:'резервный репитер, строение у Танцплощадки, коллинеарка 6 dBi'});
+  const reps=nodes.filter(n=>n.role===2), rs=nodes.find(n=>n.role===1);
   nodes.forEach(n=>{n.h=Math.min(n.h,hLimit(n));});
   nodes.forEach(n=>{
     if(n.role===2){n.ant=0;n.az=0;n.g=6;return;}
     if(n.role===1){n.ant=0;n.az=0;n.g=6;return;}
-    const cand=[rs,rep].filter(Boolean);
+    const cand=[rs,...reps].filter(Boolean);
     if(!cand.length){n.ant=0;n.az=0;return;}
     let best=null;
     for(const t of cand){
       const probe={...n,ant:1,az:Math.round(bearingTo(n,t.x,t.y))};
       let m=link(probe,t).margin;
-      if(t===rep&&rs) m=Math.min(m,link(rep,rs).margin);   // плечо repeater→RS ограничивает путь
+      if(t.role===2&&rs) m=Math.min(m,link(t,rs).margin);   // плечо repeater→RS ограничивает путь
       if(!best||m>best.m) best={m,t};
     }
     n.ant=1; n.az=Math.round(bearingTo(n,best.t.x,best.t.y));
@@ -653,9 +684,9 @@ function draw(){
     const s=covCache.step*view.s+1;
     covCache.cells.forEach(c=>{
       const m=c[2];   // запас wifi-бюджета, dB
-      if(m<0){ctx.fillStyle='rgba(210,153,34,.13)';}
-      else if(m<10){ctx.fillStyle='rgba(88,166,255,.13)';}
-      else{ctx.fillStyle='rgba(88,166,255,.22)';}
+      if(m<0){ctx.fillStyle='rgba(210,153,34,.20)';}
+      else if(m<10){ctx.fillStyle='rgba(88,166,255,.24)';}
+      else{ctx.fillStyle='rgba(88,166,255,.40)';}
       ctx.fillRect(sx(c[0])-s/2,sy(c[1])-s/2,s,s);});
   }
   if(LAY.fast){ctx.setLineDash([4,4]);ctx.strokeStyle='rgba(88,166,255,.5)';
@@ -965,30 +996,35 @@ function tbl(){
 }
 // ---------- взаимодействие ----------
 let drag=null, moved=0;
-function hitGrove(px,py){
+// зоны попадания: пальцем промахиваются на 15-25 px, поэтому для тача радиусы больше
+const hitR=e=>e&&e.pointerType==='touch'?30:15;
+function hitGrove(px,py,pad){
   for(let i=groves.length-1;i>=0;i--)
-    if(Math.hypot(sx(groves[i].x)-px,sy(groves[i].y)-py)<groves[i].r*view.s) return i;
+    if(Math.hypot(sx(groves[i].x)-px,sy(groves[i].y)-py)<groves[i].r*view.s+(pad||0)) return i;
   return -1;}
-function hitNoise(px,py){
+function hitNoise(px,py,rad){
   for(let i=noises.length-1;i>=0;i--)
-    if(Math.hypot(sx(noises[i].x)-px,sy(noises[i].y)-py)<14) return i;
+    if(Math.hypot(sx(noises[i].x)-px,sy(noises[i].y)-py)<(rad||14)) return i;
   return -1;}
-function hitNode(px,py){
-  for(let i=nodes.length-1;i>=0;i--)
-    if(Math.hypot(sx(nodes[i].x)-px,sy(nodes[i].y)-py)<15) return i;
-  return -1;}
-function hitLink(px,py){
+function hitNode(px,py,rad){
+  let bi=-1,bd=rad||15;
+  for(let i=nodes.length-1;i>=0;i--){
+    const d=Math.hypot(sx(nodes[i].x)-px,sy(nodes[i].y)-py);
+    if(d<bd){bd=d;bi=i;}}          // ближайший в радиусе, а не первый попавшийся
+  return bi;}
+function hitLink(px,py,rad){
   const G=graph();
   for(const e of G.E){
     const x1=sx(nodes[e.a].x),y1=sy(nodes[e.a].y),x2=sx(nodes[e.b].x),y2=sy(nodes[e.b].y);
     const dx=x2-x1,dy=y2-y1,L2=dx*dx+dy*dy; if(!L2)continue;
     let t=((px-x1)*dx+(py-y1)*dy)/L2; t=Math.max(0,Math.min(1,t));
-    if(Math.hypot(px-(x1+dx*t),py-(y1+dy*t))<7) return {a:e.a,b:e.b};}
+    if(Math.hypot(px-(x1+dx*t),py-(y1+dy*t))<(rad||7)) return {a:e.a,b:e.b};}
   return null;}
 cv.addEventListener('pointerdown',e=>{
   const r=cv.getBoundingClientRect(), px=e.clientX-r.left, py=e.clientY-r.top;
-  const i=hitNode(px,py); const k=(i<0&&mode==='noise')?hitNoise(px,py):-1;
-  const gg=(i<0&&k<0&&mode==='grove')?hitGrove(px,py):-1; moved=0;
+  const R0=hitR(e);
+  const i=hitNode(px,py,R0); const k=(i<0&&mode==='noise')?hitNoise(px,py,R0):-1;
+  const gg=(i<0&&k<0&&mode==='grove')?hitGrove(px,py,R0/3):-1; moved=0;
   const o=i>=0?nodes[i]:(k>=0?noises[k]:(gg>=0?groves[gg]:null));
   drag={px,py,i,k,g:gg,cx:view.cx,cy:view.cy,nx:o?o.x:0,ny:o?o.y:0};
   cv.setPointerCapture(e.pointerId);
@@ -1012,16 +1048,23 @@ cv.addEventListener('pointerup',e=>{
   const r=cv.getBoundingClientRect(), px=e.clientX-r.left, py=e.clientY-r.top;
   if(drag&&moved<6){
     if(drag.i<0&&drag.k<0&&drag.g<0){
-      const lk=hitLink(px,py);
+      const touch=e.pointerType==='touch';
+      const lk=hitLink(px,py,touch?14:7);
+      // защита от дублей: клик вплотную к существующему объекту — это выделение, не создание
+      const nearN=hitNode(px,py,touch?44:26);
       if(lk){selLink=lk;sel=-1;draw();ui();drawProfile();}
+      else if(nearN>=0){sel=nearN;selN=-1;selG=-1;selLink=null;draw();ui();drawProfile();}
       else if(mode==='grove'){
         groves.push({x:ux(px),y:uy(py),r:groveR});
         selG=groves.length-1; sel=-1;selN=-1;selLink=null;covCache=null;
         if(LAY.cov)coverage(); draw();ui();drawProfile();}
       else if(mode==='noise'){
-        noises.push({name:'помеха '+(noises.length+1),x:ux(px),y:uy(py),t:0});
-        selN=noises.length-1; sel=-1; selLink=null; covCache=null;
-        if(LAY.cov)coverage(); draw();ui();drawProfile();}
+        const nearS=hitNoise(px,py,touch?44:26);
+        if(nearS>=0){selN=nearS;sel=-1;selG=-1;selLink=null;draw();ui();drawProfile();}
+        else{
+          noises.push({name:'помеха '+(noises.length+1),x:ux(px),y:uy(py),t:0});
+          selN=noises.length-1; sel=-1; selLink=null; covCache=null;
+          if(LAY.cov)coverage(); draw();ui();drawProfile();}}
       else{
         nodes.push({name:'repeater '+(nodes.length+1),x:ux(px),y:uy(py),role:nodes.length?0:1,h:6,tx:14,g:2,wifi:1,ant:0,az:0});
         sel=nodes.length-1; selN=-1; selLink=null; covCache=null;
@@ -1116,6 +1159,7 @@ function syncSliders(){
  let fd=null;
  if(fh){fh.addEventListener('pointerdown',e=>{
     if(e.target.id==='fclose')return;
+    if(document.body&&document.body.classList.contains('mob'))return;   // нижний лист не таскаем
     fd={x:e.clientX,y:e.clientY,l:fw.offsetLeft,t:fw.offsetTop};fh.setPointerCapture(e.pointerId);});
   fh.addEventListener('pointermove',e=>{if(!fd)return;
     fw.style.left=Math.max(0,fd.l+e.clientX-fd.x)+'px';
@@ -1128,6 +1172,26 @@ if($('stog')) $('stog').onclick=()=>{
   s.style.display=hid?'':'none';
   $('stog').textContent=hid?'свернуть панель':'развернуть панель';
   resize();draw();};
+// мобильный / десктопный режим: авто по типу указателя, ручной переключатель, память выбора
+function setUiMode(mob){
+  document.body.classList.toggle('mob',mob);
+  if($('mtog')) $('mtog').textContent=mob?'деск':'моб';
+  const s=$('side');
+  if(s){s.style.display='';s.classList.remove('open');}   // сбрасываем состояние панели
+  if($('sopen')) $('sopen').innerHTML='&#9776;';
+  try{localStorage.setItem('uiMode',mob?'mob':'desk');}catch(_){}
+  resize();draw();if(selLink)drawProfile();
+}
+if($('sopen')) $('sopen').onclick=()=>{
+  const s=$('side'), open=!s.classList.contains('open');
+  s.classList.toggle('open',open);
+  $('sopen').innerHTML=open?'&times;':'&#9776;';
+};
+{let mob=(typeof matchMedia!=='undefined'&&matchMedia('(pointer:coarse)').matches)||
+         (typeof innerWidth!=='undefined'&&innerWidth<760);
+ try{const s=localStorage.getItem('uiMode'); if(s)mob=s==='mob';}catch(_){}
+ if(document.body) setUiMode(mob);}
+if($('mtog')) $('mtog').onclick=()=>setUiMode(!document.body.classList.contains('mob'));
 function vegInfo(){
   const f=d=>R.fAm*(1-Math.exp(-d*R.forest/R.fAm));
   const el=$('veginfo'); if(!el) return;

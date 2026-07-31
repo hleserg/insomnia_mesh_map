@@ -42,6 +42,7 @@ export function loadEngine(htmlPath) {
     },
     createElement: () => elemStub(),
     activeElement: { tagName: 'BODY' },
+    body: elemStub(),
   };
   const sandbox = {
     document: documentStub,
@@ -68,6 +69,7 @@ export function loadEngine(htmlPath) {
     grab(name, () => eval(name));
   grab('R', () => R); grab('DATA', () => DATA);
   out.getNodes = () => nodes; out.setNodes = v => { nodes = v; };
+  try { out.getCov = () => covCache; } catch (e) {}
   out.getNoises = () => noises; out.setNoises = v => { noises = v; };
   out.getGroves = () => groves; out.setGroves = v => { groves = v; };
   return out;
