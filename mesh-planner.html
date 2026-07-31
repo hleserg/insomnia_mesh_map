@@ -19,7 +19,9 @@ header{flex:0 0 auto;padding:7px 12px;border-bottom:1px solid var(--line);backgr
 #stat{font-size:11px;color:var(--mute);margin-top:3px}
 #stat s{text-decoration:none;color:var(--fg)}
 #body{flex:1 1 auto;display:flex;min-height:0}
-#cv{flex:1 1 auto;display:block;touch-action:none;cursor:crosshair;background:#0d1117}
+/* flex-basis:0 + min-width:0 обязательны: иначе канвас берёт ширину из своего пиксельного
+   атрибута width и на широких экранах выталкивает боковую панель за край окна */
+#cv{flex:1 1 0;min-width:0;width:100%;display:block;touch-action:none;cursor:crosshair;background:#0d1117}
 #side{flex:0 0 268px;border-left:1px solid var(--line);background:var(--panel);
   overflow-y:auto;-webkit-overflow-scrolling:touch;padding:9px 10px 40px}
 h3{margin:12px 0 6px;font-size:11px;color:var(--ok);font-weight:700;letter-spacing:.06em;
@@ -66,7 +68,12 @@ tr.r{cursor:pointer}tr.r:hover{background:#1c222b}tr.sel{background:#1f2a1f}
   align-items:center;justify-content:center;z-index:20;pointer-events:none}
 #drop.on{display:flex}
 #drop div{border:2px dashed var(--ok);color:var(--ok);padding:26px 34px;border-radius:9px;font-size:13px}
-#prof{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);display:none}
+/* Профиль — оверлей поверх карты. В потоке он сжимал канвас, узлы уезжали на
+   ~137 px, и следующий клик попадал мимо узла (плодились случайные ноды). */
+#app{position:relative}
+#side{position:relative;z-index:14}
+#prof{position:absolute;left:0;right:0;bottom:0;z-index:12;
+  border-top:1px solid var(--line);background:rgba(22,27,34,.97);display:none}
 #prof.on{display:block}
 #profcv{display:block;width:100%;height:132px}
 #profhd{font-size:10.5px;color:var(--mute);padding:4px 10px 0}
@@ -96,6 +103,8 @@ body.mob #stog{display:none}
   border-radius:10px;background:var(--panel);border:1px solid var(--line);color:var(--ok);
   font:20px/1 ui-monospace,monospace;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5)}
 body.mob #sopen{display:block}
+/* нижний лист параметров накрывает кнопку ☰ — прячем её, пока лист открыт */
+body.mob.sheet #sopen{display:none}
 body.mob .btn{padding:10px 13px;font-size:13px}
 body.mob input[type=range]{height:32px}
 body.mob select,body.mob input[type=text],body.mob input[type=number]{font-size:14px;padding:9px 8px}
@@ -191,8 +200,10 @@ body.mob .lg{font-size:11px}
   Роли по MeshCore: посетители — <b>companion</b>, они пакеты не ретранслируют.
   Вся ретрансляция на <b>repeater</b>. Администрация — <b>room server</b> для постов;
   доки советуют держать room server и repeater на разных железках.<br><br>
-  Синие пунктирные круги — сеть организаторов. Узлов mesh там нет и не планируется,
-  единственное пересечение — администрация с сервером.<br><br>
+  Синяя заливка — <b>wifi-зона</b>: реальный расчёт от всех точек UniFi XG (наших и
+  организаторских, они помечены синими кружками с крестиком). Слой «номинал орг. 400 м» —
+  это пунктирные круги «как заявлено в смете», физика их не подтверждает: в лесу зона
+  60–100 м, на поляне 260–400 м. Держи его выключенным, если не сверяешь со сметой.<br><br>
   Рельеф вшит: перепад 63 м. Между югом и Кинобаром гряда 173 м, до 23 dB на прямых линках
   на север. Лечится не мачтой, а узлом на гряде.
 </div>
@@ -218,8 +229,10 @@ body.mob .lg{font-size:11px}
       <span><i class="mk sq2"></i>companion (wifi)</span>
       <span><i class="mk ci"></i>repeater</span>
       <span><i class="mk tri"></i>источник помех</span>
-      <span><i class="mk cir"></i>сеть организаторов</span>
+      <span><i class="mk cir"></i>круги организаторов</span>
       <span><i class="mk fo"></i>заросли</span>
+      <span><i class="sw" style="background:rgba(88,166,255,.40)"></i>wifi уверенно</span>
+      <span><i class="sw" style="background:rgba(88,166,255,.24)"></i>wifi край</span>
     </div>
     <div class="lg">
       <span><i class="ln2" style="border-color:var(--ok)"></i>запас &gt;10 dB</span>
@@ -262,7 +275,8 @@ function airInfo(){
     `при ${mh} хоп. сеть тянет <b style="color:${cap>1?'var(--ok)':'var(--warn)'}">`+
     `${(cap*60).toFixed(0)} сообщ./мин</b> устойчиво`;
 }
-const LAY={water:1,forest:1,zones:1,roads:1,poi:1,fast:1,cov:0,dem:1,noise:1,links:1,all:0,labels:1};
+// wifi-зона включена сразу: ради неё узлы и расставляются, искать её в слоях не должно
+const LAY={water:1,forest:1,zones:1,roads:1,poi:1,fast:0,cov:1,dem:1,noise:1,links:1,all:0,labels:1};
 let nodes=[], noises=[], groves=[], sel=-1, selN=-1, selG=-1, selLink=null, dem=null, mode='node';
 let groveR=60;
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
@@ -689,10 +703,21 @@ function draw(){
       else{ctx.fillStyle='rgba(88,166,255,.40)';}
       ctx.fillRect(sx(c[0])-s/2,sy(c[1])-s/2,s,s);});
   }
-  if(LAY.fast){ctx.setLineDash([4,4]);ctx.strokeStyle='rgba(88,166,255,.5)';
+  if(LAY.fast){   // номинальные круги 400 м «как заявлено», реальная зона — в слое wifi-зона
+    ctx.setLineDash([4,4]);ctx.strokeStyle='rgba(88,166,255,.5)';
     ctx.fillStyle='rgba(88,166,255,.05)';ctx.lineWidth=1;
     DATA.fastwifi.forEach(f=>{ctx.beginPath();ctx.arc(sx(f.x),sy(f.y),f.r*view.s,0,7);ctx.fill();ctx.stroke();});
     ctx.setLineDash([]);}
+  if(LAY.cov){   // сами точки организаторов: их зоны входят в расчёт wifi, метка обязана быть видна
+    DATA.fastwifi.forEach(f=>{
+      const X=sx(f.x),Y=sy(f.y);
+      ctx.fillStyle='#10263f';ctx.strokeStyle='#58a6ff';ctx.lineWidth=1.6;
+      ctx.beginPath();ctx.arc(X,Y,5,0,7);ctx.fill();ctx.stroke();
+      ctx.beginPath();ctx.moveTo(X-2.5,Y);ctx.lineTo(X+2.5,Y);ctx.moveTo(X,Y-2.5);ctx.lineTo(X,Y+2.5);ctx.stroke();
+      if(LAY.labels&&view.s>0.3){ctx.font='9px ui-monospace,monospace';ctx.textAlign='center';
+        ctx.strokeStyle='#0d1117';ctx.lineWidth=3;ctx.strokeText(f.name,X,Y-9);
+        ctx.fillStyle='#58a6ff';ctx.fillText(f.name,X,Y-9);}
+    });}
   if(LAY.noise){
     noises.forEach((s,i)=>{
       const lvl=DATA.ntypes[s.t][1];
@@ -804,7 +829,8 @@ function status(G){
 function drawProfile(){
   const box=document.getElementById('prof');
   if(!selLink){box.classList.remove('on');return;}
-  box.classList.add('on'); resize();
+  box.classList.add('on');
+  pcv.width=pcv.clientWidth*DPR;pcv.height=132*DPR;pctx.setTransform(DPR,0,0,DPR,0,0);
   const A=nodes[selLink.a], B=nodes[selLink.b];
   const L=link(A,B,{prof:1});
   const zA=ground(A.x,A.y)+A.h, zB=ground(B.x,B.y)+B.h;
@@ -872,6 +898,7 @@ function ui(){
   if(active){fw.classList.add('on');
     nb0.innerHTML='<div class="hint">Параметры выбранного — в плавающем окне на карте.</div>';}
   else fw.classList.remove('on');
+  document.body.classList.toggle('sheet',!!active);
   if(selG>=0&&groves[selG]){
     const g=groves[selG];
     nb.innerHTML=`<div class="hint">Пятно зарослей.</div>
@@ -956,7 +983,7 @@ function ui(){
   }
   const lay=document.getElementById('layers');
   const NAMES={water:'вода',forest:'лес',zones:'зоны',roads:'дороги',poi:'poi',
-               fast:'быстрый wifi',cov:'покрытие',dem:'рельеф',noise:'шум',links:'линки',all:'все линки',labels:'подписи'};
+               fast:'номинал орг. 400 м',cov:'wifi-зона',dem:'рельеф',noise:'шум',links:'линки',all:'все линки',labels:'подписи'};
   lay.innerHTML=Object.keys(NAMES).map(k=>
     `<button class="btn${LAY[k]?' on':''}" data-k="${k}">${NAMES[k]}</button>`).join('');
   lay.querySelectorAll('button').forEach(b=>b.onclick=()=>{
@@ -1050,9 +1077,11 @@ cv.addEventListener('pointerup',e=>{
     if(drag.i<0&&drag.k<0&&drag.g<0){
       const touch=e.pointerType==='touch';
       const lk=hitLink(px,py,touch?14:7);
-      // защита от дублей: клик вплотную к существующему объекту — это выделение, не создание
-      const nearN=hitNode(px,py,touch?44:26);
-      if(lk){selLink=lk;sel=-1;draw();ui();drawProfile();}
+      // защита от дублей: клик вплотную к существующему объекту — это выделение, не создание.
+      // Узел имеет приоритет над линком, если палец лёг прямо на него.
+      const onN=hitNode(px,py,touch?26:15), nearN=hitNode(px,py,touch?44:26);
+      if(onN>=0){sel=onN;selN=-1;selG=-1;selLink=null;draw();ui();drawProfile();}
+      else if(lk){selLink=lk;sel=-1;draw();ui();drawProfile();}
       else if(nearN>=0){sel=nearN;selN=-1;selG=-1;selLink=null;draw();ui();drawProfile();}
       else if(mode==='grove'){
         groves.push({x:ux(px),y:uy(py),r:groveR});
@@ -1125,7 +1154,7 @@ function loadFile(f){
   else{rd.onload=()=>{try{const j=JSON.parse(rd.result);
       if(j.nodes){nodes=j.nodes;if(j.noises)noises=j.noises;if(j.groves)groves=j.groves;if(j.R)Object.assign(R,j.R);
         // санитизация импортированного плана: числа обязаны быть числами
-        nodes.forEach(n=>{n.h=Number.isFinite(+n.h)?+n.h:12;n.tx=Number.isFinite(+n.tx)?+n.tx:14;
+        nodes.forEach(n=>{n.h=(Number.isFinite(+n.h)&&+n.h>0)?+n.h:6;n.tx=Number.isFinite(+n.tx)?+n.tx:14;
           n.g=Number.isFinite(+n.g)?+n.g:2;n.ant=n.ant?1:0;n.az=Number.isFinite(+n.az)?+n.az:0;});
         sel=-1;selN=-1;selG=-1;selLink=null;covCache=null;
         syncSliders();if(LAY.cov)coverage();draw();ui();drawProfile();airInfo();vegInfo();}
@@ -1211,5 +1240,6 @@ resize();
 nodes=DATA.preset.map(p=>Object.assign({},p));
 noises=DATA.noise.map(p=>Object.assign({},p));
 applyAntennaPlan();
+if(LAY.cov) coverage();          // wifi-зона считается сразу, иначе слой пуст до первого клика
 ui(); draw(); airInfo(); vegInfo();
 </script></body></html>
