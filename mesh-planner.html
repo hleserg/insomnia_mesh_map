@@ -737,14 +737,31 @@ function resize(){DPR=Math.min(2,window.devicePixelRatio||1);
 // заливкой рельефа и горизонталями.
 // [Fix-25] Тепловая карта высот: средний уровень площадки — зелёный, выше — в красное,
 // ниже — в синее. Так сразу видно гряды и низины, а не «однородную темноту».
+// [Fix-28] Поле феста, а не весь bbox: дальние КПП и парковки растягивали границы на
+// километры, из-за чего среднее считалось по посторонним холмам, а они же красились
+// красным «в чистом поле». Ядро — перцентили 3/97 координат объектов плюс сами узлы.
+let siteCache=null;
+function siteBounds(){
+  if(siteCache) return siteCache;
+  const xs=DATA.poi.map(p=>p[0]).sort((a,b)=>a-b), ys=DATA.poi.map(p=>p[1]).sort((a,b)=>a-b);
+  const q=(a,p)=>a[Math.max(0,Math.min(a.length-1,Math.floor(a.length*p)))];
+  const pad=120;
+  let x0=q(xs,0.03)-pad, x1=q(xs,0.97)+pad, y0=q(ys,0.03)-pad, y1=q(ys,0.97)+pad;
+  for(const n of nodes){                     // узел, вынесенный за ядро, тоже должен быть на рельефе
+    x0=Math.min(x0,n.x-pad); x1=Math.max(x1,n.x+pad);
+    y0=Math.min(y0,n.y-pad); y1=Math.max(y1,n.y+pad);
+  }
+  siteCache={x0,x1,y0,y1};
+  return siteCache;
+}
+const inSite=(x,y)=>{const s=siteBounds(); return x>=s.x0&&x<=s.x1&&y>=s.y0&&y<=s.y1;};
 let medCache=null;
-// Шкала строится по фактическому распределению высот НА ПЛОЩАДКЕ (перцентили 2/50/98),
-// а не по всему окну SRTM: иначе дальние холмы съедают весь цветовой диапазон.
+// Шкала — по фактическому распределению высот ПОЛЯ ФЕСТА (перцентили 2/50/98).
 function demStats(){
-  const key=dem?dem.name:'built-in';
+  const key=(dem?dem.name:'built-in')+'|'+JSON.stringify(siteBounds());
   if(medCache&&medCache.key===key) return medCache.v;
-  const B=DATA.bbox, arr=[];
-  for(let x=B[0];x<=B[2];x+=25)for(let y=B[1];y<=B[3];y+=25){
+  const S=siteBounds(), arr=[];
+  for(let x=S.x0;x<=S.x1;x+=20)for(let y=S.y0;y<=S.y1;y+=20){
     demOut=false; const g=ground(x,y); if(!demOut) arr.push(g);
   }
   arr.sort((a,b)=>a-b);
@@ -773,7 +790,8 @@ function demGrid(){
   const z=new Float32Array(nx*ny), ok=new Uint8Array(nx*ny);
   for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
     const X=x0+i*step, Y=y0+j*step;
-    demOut=false; z[j*nx+i]=ground(X,Y); ok[j*nx+i]=demOut?0:1;   // вне окна данных не рисуем
+    // рисуем только там, где есть данные И это поле феста
+    demOut=false; z[j*nx+i]=ground(X,Y); ok[j*nx+i]=(demOut||!inSite(X,Y))?0:1;
   }
   demKey=key;
   return {z,ok,nx,ny,step,x0,y0};
@@ -841,7 +859,7 @@ function drawLegend(){
   ctx.textAlign='left'; ctx.font='9px ui-monospace,monospace';
   let y=Y+14;
   if(LAY.dem){                                    // шкала высот
-    ctx.fillStyle='#8b949e'; ctx.fillText('высота: ниже средней → выше',X+8,y); y+=6;
+    ctx.fillStyle='#8b949e'; ctx.fillText('высота поля: низины → среднее → холмы',X+8,y); y+=6;
     const gw=w-16, gx=X+8;
     for(let i=0;i<gw;i++){
       ctx.fillStyle=heatColor((i/gw)*2-1,1);
@@ -1127,9 +1145,9 @@ function ui(){
       <div class="row"><label>радиус</label><b><span id="vgr">${Math.round(g.r)}</span> м</b></div>
       <input type="range" id="grr" min="15" max="300" step="5" value="${Math.round(g.r)}">
       <div class="btns"><button class="btn danger" id="gdel">удалить</button></div>`;
-    $('grr').oninput=e=>{g.r=+e.target.value;$('vgr').textContent=g.r;covCache=null;
+    $('grr').oninput=e=>{g.r=+e.target.value;$('vgr').textContent=g.r;covCache=null;siteCache=null;demKey="";
       if(LAY.cov)coverage();draw();tbl();if(selLink)drawProfile();};
-    $('gdel').onclick=()=>{groves.splice(selG,1);selG=-1;covCache=null;
+    $('gdel').onclick=()=>{groves.splice(selG,1);selG=-1;covCache=null;siteCache=null;demKey="";
       if(LAY.cov)coverage();draw();ui();tbl();};
   }
   else if(selN>=0&&noises[selN]){
@@ -1142,9 +1160,9 @@ function ui(){
         на 50 м — ${noiseRiseOf(DATA.ntypes[s.t][1],50).toFixed(1)} dB, на 100 м — ${noiseRiseOf(DATA.ntypes[s.t][1],100).toFixed(1)} dB.</div>
       <div class="btns"><button class="btn danger" id="sdel">удалить помеху</button></div>`;
     document.getElementById('sname').oninput=e=>{s.name=e.target.value;draw();};
-    document.getElementById('stype').onchange=e=>{s.t=+e.target.value;covCache=null;
+    document.getElementById('stype').onchange=e=>{s.t=+e.target.value;covCache=null;siteCache=null;demKey="";
       if(LAY.cov)coverage();draw();ui();tbl();};
-    document.getElementById('sdel').onclick=()=>{noises.splice(selN,1);selN=-1;covCache=null;
+    document.getElementById('sdel').onclick=()=>{noises.splice(selN,1);selN=-1;covCache=null;siteCache=null;demKey="";
       if(LAY.cov)coverage();draw();ui();tbl();};
   }
   else if(sel<0||!nodes[sel]) nb.innerHTML='<div class="hint">Кликни по карте, чтобы поставить repeater. Тяни &mdash; чтобы двигать. Клик по линии &mdash; профиль трассы. Кнопка «ставлю помехи» переключает, что добавляется по клику.</div>';
@@ -1196,7 +1214,7 @@ function ui(){
       <div class="btns"><button class="btn danger" id="ndel">удалить узел</button></div>`;
     document.getElementById('nname').oninput=e=>{n.name=e.target.value;draw();tbl();};
     document.getElementById('nrole').onchange=e=>{n.role=+e.target.value;
-      covCache=null;if(LAY.cov)coverage();draw();ui();tbl();};   // роль меняет wifi и энергетику
+      covCache=null;siteCache=null;demKey="";if(LAY.cov)coverage();draw();ui();tbl();};   // роль меняет wifi и энергетику
     document.getElementById('ncoord').onclick=()=>{
       const s=w2lat(n.y).toFixed(6)+', '+w2lng(n.x).toFixed(6);
       if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(s);
@@ -1209,11 +1227,11 @@ function ui(){
     ['h','t','g'].forEach((k,i)=>{
       const f=['h','tx','g'][i], lbl=['vh','vt','vg'][i];
       document.getElementById('n'+k).oninput=e=>{n[f]=+e.target.value;
-        document.getElementById(lbl).textContent=n[f];covCache=null;
+        document.getElementById(lbl).textContent=n[f];covCache=null;siteCache=null;demKey="";
         if(LAY.cov)coverage(); draw();tbl();ui2(n);};
     });
     document.getElementById('ndel').onclick=()=>{nodes.splice(sel,1);sel=-1;selLink=null;
-      covCache=null;if(LAY.cov)coverage();draw();ui();tbl();drawProfile();};
+      covCache=null;siteCache=null;demKey="";if(LAY.cov)coverage();draw();ui();tbl();drawProfile();};
   }
   const lay=document.getElementById('layers');
   const NAMES={water:'вода',forest:'лес',zones:'зоны',roads:'дороги',poi:'poi',
@@ -1236,7 +1254,7 @@ function ui(){
        каждая пятая жирная с подписью высоты</span></div>
        <div class="hint">Дифракция, перекрытия и профили считаются по нему. Можно подменить своим .hgt — брось файл в окно.</div>
        <div class="btns"><button class="btn" id="demload">свой .hgt</button></div>`;
-  if(dem) document.getElementById('demoff').onclick=()=>{dem=null;covCache=null;draw();ui();};
+  if(dem) document.getElementById('demoff').onclick=()=>{dem=null;covCache=null;siteCache=null;demKey="";draw();ui();};
   else document.getElementById('demload').onclick=()=>{fin.accept='.hgt';fin.click();};
   tbl();
 }
@@ -1325,11 +1343,11 @@ cv.addEventListener('pointermove',e=>{
   const r=cv.getBoundingClientRect(), px=e.clientX-r.left, py=e.clientY-r.top;
   const dx=px-drag.px, dy=py-drag.py; moved=Math.max(moved,Math.hypot(dx,dy));
   if(drag.i>=0){nodes[drag.i].x=drag.nx+dx/view.s; nodes[drag.i].y=drag.ny-dy/view.s;
-    covCache=null; draw(); if(selLink)drawProfile();}
+    covCache=null;siteCache=null;demKey=""; draw(); if(selLink)drawProfile();}
   else if(drag.k>=0){noises[drag.k].x=drag.nx+dx/view.s; noises[drag.k].y=drag.ny-dy/view.s;
-    covCache=null; draw(); if(selLink)drawProfile();}
+    covCache=null;siteCache=null;demKey=""; draw(); if(selLink)drawProfile();}
   else if(drag.g>=0){groves[drag.g].x=drag.nx+dx/view.s; groves[drag.g].y=drag.ny-dy/view.s;
-    covCache=null; draw(); if(selLink)drawProfile();}
+    covCache=null;siteCache=null;demKey=""; draw(); if(selLink)drawProfile();}
   else {view.cx=drag.cx-dx/view.s; view.cy=drag.cy+dy/view.s; draw();}
 });
 cv.addEventListener('pointerup',e=>{
@@ -1346,18 +1364,18 @@ cv.addEventListener('pointerup',e=>{
       else if(nearN>=0){sel=nearN;selN=-1;selG=-1;selLink=null;draw();ui();drawProfile();}
       else if(mode==='grove'){
         groves.push({x:ux(px),y:uy(py),r:groveR});
-        selG=groves.length-1; sel=-1;selN=-1;selLink=null;covCache=null;
+        selG=groves.length-1; sel=-1;selN=-1;selLink=null;covCache=null;siteCache=null;demKey="";
         if(LAY.cov)coverage(); draw();ui();drawProfile();}
       else if(mode==='noise'){
         const nearS=hitNoise(px,py,touch?44:26);
         if(nearS>=0){selN=nearS;sel=-1;selG=-1;selLink=null;draw();ui();drawProfile();}
         else{
           noises.push({name:'помеха '+(noises.length+1),x:ux(px),y:uy(py),t:0});
-          selN=noises.length-1; sel=-1; selLink=null; covCache=null;
+          selN=noises.length-1; sel=-1; selLink=null; covCache=null;siteCache=null;demKey="";
           if(LAY.cov)coverage(); draw();ui();drawProfile();}}
       else{
         nodes.push({name:'repeater '+(nodes.length+1),x:ux(px),y:uy(py),role:nodes.length?0:1,h:6,tx:14,g:2,wifi:1,ant:0,az:0});
-        sel=nodes.length-1; selN=-1; selLink=null; covCache=null;
+        sel=nodes.length-1; selN=-1; selLink=null; covCache=null;siteCache=null;demKey="";
         if(LAY.cov)coverage(); draw();ui();drawProfile();}
     }
   }
@@ -1383,25 +1401,25 @@ addEventListener('keydown',e=>{
     else if(selN>=0){noises.splice(selN,1);selN=-1;}
     else if(selG>=0){groves.splice(selG,1);selG=-1;}
     else return;
-    covCache=null;if(LAY.cov)coverage();draw();ui();tbl();drawProfile();}
+    covCache=null;siteCache=null;demKey="";if(LAY.cov)coverage();draw();ui();tbl();drawProfile();}
 });
 // ---------- параметры радио ----------
 document.getElementById('preset').onchange=e=>{
-  const p=e.target.value.split('|'); R.SF=+p[0]; R.BW=+p[1]; airInfo();covCache=null;if(LAY.cov)coverage();draw();tbl();};
+  const p=e.target.value.split('|'); R.SF=+p[0]; R.BW=+p[1]; airInfo();covCache=null;siteCache=null;demKey="";if(LAY.cov)coverage();draw();tbl();};
 [['mg','margin','vmg',0],['cl','clutter','vcl',0],['pn','n','vpn',1],['wf','wifiFade','vwf',0],['cp','canopy','vcp',0]].forEach(([id,key,lbl,dg])=>{
   document.getElementById(id).oninput=e=>{R[key]=+e.target.value;
     document.getElementById(lbl).textContent=R[key].toFixed(dg);
-    covCache=null; if(LAY.cov)coverage(); draw(); tbl(); if(selLink)drawProfile();};
+    covCache=null;siteCache=null;demKey=""; if(LAY.cov)coverage(); draw(); tbl(); if(selLink)drawProfile();};
 });
 // ---------- проект ----------
 document.getElementById('bpreset').onclick=()=>{
   nodes=DATA.preset.map(p=>Object.assign({},p));
   noises=DATA.noise.map(p=>Object.assign({},p)); applyAntennaPlan();
-  sel=-1;selN=-1;selLink=null;covCache=null;
+  sel=-1;selN=-1;selLink=null;covCache=null;siteCache=null;demKey="";
   if(LAY.cov)coverage(); draw();ui();drawProfile();};
 document.getElementById('bclear').onclick=()=>{
   if(nodes.length&&!confirm('Удалить все ноды и помехи?'))return;
-  nodes=[];noises=[];groves=[];sel=-1;selN=-1;selG=-1;selLink=null;covCache=null;draw();ui();drawProfile();};
+  nodes=[];noises=[];groves=[];sel=-1;selN=-1;selG=-1;selLink=null;covCache=null;siteCache=null;demKey="";draw();ui();drawProfile();};
 document.getElementById('bexport').onclick=()=>{
   const blob=new Blob([JSON.stringify({nodes,noises,groves,R,v:3},null,1)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
@@ -1417,7 +1435,7 @@ function loadFile(f){
         // санитизация импортированного плана: числа обязаны быть числами
         nodes.forEach(n=>{n.h=(Number.isFinite(+n.h)&&+n.h>0)?+n.h:6;n.tx=Number.isFinite(+n.tx)?+n.tx:14;
           n.g=Number.isFinite(+n.g)?+n.g:2;n.ant=n.ant?1:0;n.az=Number.isFinite(+n.az)?+n.az:0;});
-        sel=-1;selN=-1;selG=-1;selLink=null;covCache=null;
+        sel=-1;selN=-1;selG=-1;selLink=null;covCache=null;siteCache=null;demKey="";
         syncSliders();if(LAY.cov)coverage();draw();ui();drawProfile();airInfo();vegInfo();}
     }catch(err){alert('Не читается: '+err.message);}};rd.readAsText(f);}
 }
@@ -1491,10 +1509,10 @@ function vegInfo(){
     `100 м <b style="color:${f(100)>18?'var(--warn)':'var(--fg)'}">${f(100).toFixed(1)}</b> dB`;
 }
 if($('veg')) $('veg').onchange=e=>{const p=e.target.value.split('|');
-  R.forest=+p[0]; R.fAm=+p[1]; vegInfo(); covCache=null;
+  R.forest=+p[0]; R.fAm=+p[1]; vegInfo(); covCache=null;siteCache=null;demKey="";
   if(LAY.cov)coverage(); draw(); ui(); tbl(); if(selLink)drawProfile();};
 if($('nn')) $('nn').oninput=e=>{R.nn=+e.target.value;$('vnn').textContent=R.nn.toFixed(1);
-  covCache=null; if(LAY.cov)coverage(); draw(); ui(); tbl(); if(selLink)drawProfile();};
+  covCache=null;siteCache=null;demKey=""; if(LAY.cov)coverage(); draw(); ui(); tbl(); if(selLink)drawProfile();};
 // ---------- старт ----------
 addEventListener('resize',()=>{resize();draw();if(selLink)drawProfile();});
 resize();
