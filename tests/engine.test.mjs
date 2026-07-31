@@ -3,7 +3,7 @@
 // главное требование: перестановка узлов должна менять картину в физичную сторону.
 import { loadEngine } from '../tools/load-engine.mjs';
 
-const E = loadEngine(new URL('../mesh-planner.html', import.meta.url).pathname);
+const E = loadEngine(process.argv[2] || new URL('../mesh-planner.html', import.meta.url).pathname);
 let fail = 0, n = 0;
 const ok = (name, cond, detail = '') => {
   n++;
