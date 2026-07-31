@@ -42,6 +42,7 @@ export function loadEngine(htmlPath) {
     },
     createElement: () => elemStub(),
     activeElement: { tagName: 'BODY' },
+    body: elemStub(),
   };
   const sandbox = {
     document: documentStub,
