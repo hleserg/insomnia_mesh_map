@@ -86,8 +86,16 @@ tr.r{cursor:pointer}tr.r:hover{background:#1c222b}tr.sel{background:#1f2a1f}
    Десктопная вёрстка при этом не меняется вовсе. */
 body.mob #body{flex-direction:column}
 body.mob #cv{flex:1 1 auto;min-height:0}
-body.mob #side{flex:0 0 auto;max-height:46vh;border-left:0;border-top:1px solid var(--line);
-  width:100%;padding:8px 12px 28px}
+/* панель на мобильном не отъедает карту: скрыта, открывается кнопкой ☰ шторкой поверх */
+body.mob #side{display:none;position:fixed;left:0;right:0;bottom:0;top:auto;z-index:16;
+  max-height:66vh;width:100%;border-left:0;border-top:1px solid var(--line);
+  border-radius:12px 12px 0 0;box-shadow:0 -8px 24px rgba(0,0,0,.55);padding:10px 14px 28px}
+body.mob #side.open{display:block}
+body.mob #stog{display:none}
+#sopen{display:none;position:fixed;left:12px;bottom:12px;z-index:17;width:44px;height:44px;
+  border-radius:10px;background:var(--panel);border:1px solid var(--line);color:var(--ok);
+  font:20px/1 ui-monospace,monospace;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+body.mob #sopen{display:block}
 body.mob .btn{padding:10px 13px;font-size:13px}
 body.mob input[type=range]{height:32px}
 body.mob select,body.mob input[type=text],body.mob input[type=number]{font-size:14px;padding:9px 8px}
@@ -227,6 +235,7 @@ body.mob .lg{font-size:11px}
   <canvas id="profcv"></canvas>
 </div>
 </div>
+<button id="sopen">&#9776;</button>
 <div id="float"><div id="fhead">ВЫБРАННОЕ <span id="fclose">&times;</span></div><div id="fbody"></div></div>
 <div id="drop"><div>брось сюда .hgt или .json проекта</div></div>
 <input type="file" id="fin" style="display:none">
@@ -537,18 +546,23 @@ function hLimit(n){ return inForest(n.x,n.y)?6:5; }
 // лучший путь (прямо в room server или через repeater — по расчёту).
 function applyAntennaPlan(){
   nodes=nodes.filter(n=>n.name!=='СЦЕНА СЕВЕР');
-  const rep=nodes.find(n=>n.role===2), rs=nodes.find(n=>n.role===1);
+  // Второй репитер (резерв + апгрейд): восточная поляна у Танцплощадки, позиция из
+  // tools/second-repeater.mjs — при отказе ГРЯДЫ сеть держит +21.8 dB вместо −5.
+  if(!nodes.some(n=>n.name==='РЕПИТЕР-ВОСТОК'))
+    nodes.push({name:'РЕПИТЕР-ВОСТОК',x:1229.7,y:33.9,role:2,h:4,tx:14,g:6,wifi:0,ant:0,az:0,
+      note:'резервный репитер, строение у Танцплощадки, коллинеарка 6 dBi'});
+  const reps=nodes.filter(n=>n.role===2), rs=nodes.find(n=>n.role===1);
   nodes.forEach(n=>{n.h=Math.min(n.h,hLimit(n));});
   nodes.forEach(n=>{
     if(n.role===2){n.ant=0;n.az=0;n.g=6;return;}
     if(n.role===1){n.ant=0;n.az=0;n.g=6;return;}
-    const cand=[rs,rep].filter(Boolean);
+    const cand=[rs,...reps].filter(Boolean);
     if(!cand.length){n.ant=0;n.az=0;return;}
     let best=null;
     for(const t of cand){
       const probe={...n,ant:1,az:Math.round(bearingTo(n,t.x,t.y))};
       let m=link(probe,t).margin;
-      if(t===rep&&rs) m=Math.min(m,link(rep,rs).margin);   // плечо repeater→RS ограничивает путь
+      if(t.role===2&&rs) m=Math.min(m,link(t,rs).margin);   // плечо repeater→RS ограничивает путь
       if(!best||m>best.m) best={m,t};
     }
     n.ant=1; n.az=Math.round(bearingTo(n,best.t.x,best.t.y));
@@ -1162,9 +1176,17 @@ if($('stog')) $('stog').onclick=()=>{
 function setUiMode(mob){
   document.body.classList.toggle('mob',mob);
   if($('mtog')) $('mtog').textContent=mob?'деск':'моб';
+  const s=$('side');
+  if(s){s.style.display='';s.classList.remove('open');}   // сбрасываем состояние панели
+  if($('sopen')) $('sopen').innerHTML='&#9776;';
   try{localStorage.setItem('uiMode',mob?'mob':'desk');}catch(_){}
   resize();draw();if(selLink)drawProfile();
 }
+if($('sopen')) $('sopen').onclick=()=>{
+  const s=$('side'), open=!s.classList.contains('open');
+  s.classList.toggle('open',open);
+  $('sopen').innerHTML=open?'&times;':'&#9776;';
+};
 {let mob=(typeof matchMedia!=='undefined'&&matchMedia('(pointer:coarse)').matches)||
          (typeof innerWidth!=='undefined'&&innerWidth<760);
  try{const s=localStorage.getItem('uiMode'); if(s)mob=s==='mob';}catch(_){}
