@@ -70,9 +70,18 @@ const flat = (d, gz = 0, step = 6) => {
 }
 
 // --- 3. Реальная карта: физичные отклики на перестановку узлов ---
+// В оптимизированном плане СЦЕНА СЕВЕР исключена — для тестов берём её из сырого пресета.
 const nodes = E.getNodes();
-const byName = s => nodes.find(x => x.name === s);
+const byName = s => nodes.find(x => x.name === s) ||
+  Object.assign({}, E.DATA.preset.find(x => x.name === s));
 const ADM = byName('АДМИНИСТРАЦИЯ'), GRD = byName('ГРЯДА'), SCN = byName('СЦЕНА СЕВЕР');
+{ // оптимизированный план: реалистичные подвесы, без СЦЕНЫ СЕВЕР, коллинеарки на RS/repeater
+  ok('СЦЕНА СЕВЕР исключена из плана', !nodes.some(n => n.name === 'СЦЕНА СЕВЕР'));
+  ok('подвесы в пределах (лес ≤6, поляна ≤5)', nodes.every(n => n.h <= (E.inForest(n.x, n.y) ? 6 : 5)),
+    nodes.map(n => n.name.split(' ')[0] + ':' + n.h).join(' '));
+  ok('RS и repeater — всенаправленные', nodes.filter(n => n.role !== 0).every(n => (n.ant | 0) === 0));
+  ok('companion — панели', nodes.filter(n => n.role === 0).every(n => (n.ant | 0) === 1));
+}
 const mAt = (A, B, hA, hB) => E.link({ ...A, h: hA }, { ...B, h: hB }, {}).margin;
 { // подъём антенны никогда не ухудшает линк; выход над полог заметно помогает
   const seq = [2, 6, 12, 18, 25].map(h => mAt(ADM, GRD, h, h));

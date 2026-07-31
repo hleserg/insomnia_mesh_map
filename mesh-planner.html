@@ -508,15 +508,30 @@ function link(A,B,opt){
   return {d,fspl:pl,ldif:fe.ldif,lfor:fe.lfor,lclt,prx,vmax:fe.vmax,nrA,nrB,margin,dbp,
           heff:[eh.hA,eh.hB],flen:fe.flen,mech:fe.mech,noRef,gA,gB,ok:margin>=0,prof};
 }
-// План антенн из спецификации: companion — панель на repeater (ГРЯДА), room server —
-// панель на repeater, сам repeater — всенаправленная коллинеарка. Только для узлов,
-// у которых антенна ещё не задана (импортированные планы не трогаем).
+// Реалистичный предел подвеса: в лесу верёвка на дерево — до 6 м, на поляне только
+// строения — до 5 м (в чистом поле 3–4 м, и лучше вообще не ставить).
+function hLimit(n){ return inForest(n.x,n.y)?6:5; }
+// Оптимизированный план (см. docs/audit.md и README): высоты по реальным пределам,
+// СЦЕНА СЕВЕР исключена (142 м от КИНОБАРА — зона закрыта его wifi, шум +11 dB),
+// repeater и room server — всенаправленные коллинеарки, панели companion целятся в
+// лучший путь (прямо в room server или через repeater — по расчёту).
 function applyAntennaPlan(){
-  const rep=nodes.find(n=>n.role===2)||nodes.find(n=>n.role===1);
+  nodes=nodes.filter(n=>n.name!=='СЦЕНА СЕВЕР');
+  const rep=nodes.find(n=>n.role===2), rs=nodes.find(n=>n.role===1);
+  nodes.forEach(n=>{n.h=Math.min(n.h,hLimit(n));});
   nodes.forEach(n=>{
-    if(n.ant!==undefined) return;
-    if(n.role===2||!rep||rep===n){n.ant=0;n.az=0;}
-    else {n.ant=1;n.az=Math.round(bearingTo(n,rep.x,rep.y));}
+    if(n.role===2){n.ant=0;n.az=0;n.g=6;return;}
+    if(n.role===1){n.ant=0;n.az=0;n.g=6;return;}
+    const cand=[rs,rep].filter(Boolean);
+    if(!cand.length){n.ant=0;n.az=0;return;}
+    let best=null;
+    for(const t of cand){
+      const probe={...n,ant:1,az:Math.round(bearingTo(n,t.x,t.y))};
+      let m=link(probe,t).margin;
+      if(t===rep&&rs) m=Math.min(m,link(rep,rs).margin);   // плечо repeater→RS ограничивает путь
+      if(!best||m>best.m) best={m,t};
+    }
+    n.ant=1; n.az=Math.round(bearingTo(n,best.t.x,best.t.y));
   });
 }
 // ---------- граф ----------
@@ -842,7 +857,10 @@ function ui(){
         <option value="2"${n.role===2?' selected':''}>repeater — только ретрансляция, wifi нет</option>
       </select>
       <div class="row"><label>высота антенны</label><b><span id="vh">${n.h}</span> м</b></div>
-      <input type="range" id="nh" min="1" max="25" step="1" value="${n.h}">
+      <input type="range" id="nh" min="1" max="${hLimit(n)}" step="1" value="${Math.min(n.h,hLimit(n))}">
+      <div class="hint">Реальный предел: лес ≤6 м (верёвка на дерево), поляна ≤5 м и только
+        на строении. В чистом поле 3–4 м — лучше вообще не ставить.</div>
+      ${n.h>hLimit(n)?'<div class="warnbox">⚠ подвес '+n.h+' м выше реального предела '+hLimit(n)+' м для этого места</div>':''}
       <div class="row"><label>мощность TX</label><b><span id="vt">${n.tx}</span> dBm</b></div>
       <input type="range" id="nt" min="2" max="27" step="1" value="${n.tx}">
       <div class="row"><label>усиление антенны</label><b><span id="vg">${n.g}</span> dBi</b></div>
@@ -986,7 +1004,8 @@ cv.addEventListener('pointerup',e=>{
         if(LAY.cov)coverage(); draw();ui();drawProfile();}
     }
   }
-  if(drag&&(drag.i>=0||drag.k>=0||drag.g>=0)&&moved>=6){if(LAY.cov)coverage();draw();}
+  if(drag&&(drag.i>=0||drag.k>=0||drag.g>=0)&&moved>=6){
+    if(LAY.cov)coverage();draw();ui();}   // обновить координаты/пределы высоты в окне
   drag=null;
 });
 cv.addEventListener('wheel',e=>{e.preventDefault();
@@ -1019,8 +1038,9 @@ document.getElementById('preset').onchange=e=>{
 });
 // ---------- проект ----------
 document.getElementById('bpreset').onclick=()=>{
-  nodes=DATA.preset.map(p=>Object.assign({},p)); applyAntennaPlan();
-  noises=DATA.noise.map(p=>Object.assign({},p)); sel=-1;selN=-1;selLink=null;covCache=null;
+  nodes=DATA.preset.map(p=>Object.assign({},p));
+  noises=DATA.noise.map(p=>Object.assign({},p)); applyAntennaPlan();
+  sel=-1;selN=-1;selLink=null;covCache=null;
   if(LAY.cov)coverage(); draw();ui();drawProfile();};
 document.getElementById('bclear').onclick=()=>{
   if(nodes.length&&!confirm('Удалить все ноды и помехи?'))return;
@@ -1100,7 +1120,8 @@ if($('nn')) $('nn').oninput=e=>{R.nn=+e.target.value;$('vnn').textContent=R.nn.t
 // ---------- старт ----------
 addEventListener('resize',()=>{resize();draw();if(selLink)drawProfile();});
 resize();
-nodes=DATA.preset.map(p=>Object.assign({},p)); applyAntennaPlan();
+nodes=DATA.preset.map(p=>Object.assign({},p));
 noises=DATA.noise.map(p=>Object.assign({},p));
+applyAntennaPlan();
 ui(); draw(); airInfo(); vegInfo();
 </script></body></html>
