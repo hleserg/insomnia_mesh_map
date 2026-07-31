@@ -65,7 +65,8 @@ export function loadEngine(htmlPath) {
   for (const name of ['link','ground','bground','inForest','noiseAt','noiseRise','J','airtime',
                       'graph','coverage','lam','NTH','w2lat','w2lng','sensAt','noiseRiseOf',
                       'effHeights','profileOf','diffractionLoss','deygout','maxV','vegLoss',
-                      'vegStretches','forestExcess','escapeLen','clutterLoss','pathLoss','fsplOf'])
+                      'vegStretches','forestExcess','escapeLen','clutterLoss','pathLoss','fsplOf',
+                      'forestState','inMask','num','wfWeissberger','wifiAPs'])
     grab(name, () => eval(name));
   grab('R', () => R); grab('DATA', () => DATA);
   out.getNodes = () => nodes; out.setNodes = v => { nodes = v; };

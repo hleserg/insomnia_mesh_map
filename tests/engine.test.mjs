@@ -140,5 +140,62 @@ const mAt = (A, B, hA, hB) => E.link({ ...A, h: hA }, { ...B, h: hB }, {}).margi
   ok('зона Френеля в правильных единицах', near(mid.F, Fref, 0.01), mid.F.toFixed(2) + ' м');
 }
 
+// --- 4. Границы, взаимность, типы: находки внешнего аудита (docs/audit.md, раздел «Ответ») ---
+{ // взаимность: физика не зависит от того, с какого конца считать
+  let worst = 0, wn = '';
+  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+    const a = E.link(nodes[i], nodes[j], {}).margin, b = E.link(nodes[j], nodes[i], {}).margin;
+    if (Math.abs(a - b) > worst) { worst = Math.abs(a - b); wn = nodes[i].name + '/' + nodes[j].name; }
+  }
+  ok('взаимность link(A,B) = link(B,A)', worst < 1e-9, worst.toExponential(2) + ' dB ' + wn);
+  const L1 = E.link(ADM, GRD, { prof: 1 }), L2 = E.link(GRD, ADM, { prof: 1 });
+  ok('компоненты симметричны', near(L1.pl, L2.pl, 1e-9) && near(L1.ldif, L2.ldif, 1e-9) && near(L1.flen, L2.flen, 1e-9));
+  ok('профиль зеркалится', L1.prof.length === L2.prof.length &&
+    near(L1.prof[0].d, L2.d - L2.prof[L2.prof.length - 1].d, 1e-6));
+}
+{ // DEM вне окна: край, а не произвольная константа первой ячейки
+  const far = E.ground(50000, 50000), near0 = E.ground(300, 0);
+  ok('ground вне DEM = край окна, не z[0]', far !== E.DATA.dem.z[0] && Number.isFinite(far),
+    `${far.toFixed(1)} м (z[0]=${E.DATA.dem.z[0]})`);
+  ok('ground внутри окна в диапазоне рельефа', near0 > E.DATA.dem.lo - 1 && near0 < E.DATA.dem.hi + 1, near0.toFixed(1));
+  ok('выход за DEM помечается флагом', E.link(ADM, { ...ADM, x: 60000 }, {}).demOut === true);
+}
+{ // грунт: три состояния, вне маски — unknown, а не молчаливое «открыто»
+  ok('forestState вне маски = unknown', E.forestState(-1000, 0) === 'unknown', E.forestState(-1000, 0));
+  ok('forestState в лесу', E.forestState(316.8, -59.7) === 'forest');
+  ok('forestState на поляне', E.forestState(928.2, -139.2) === 'open');
+}
+{ // дискретизация: шаг держится на длинных трассах
+  const step = d => d / Math.max(16, Math.min(2000, Math.round(d / 6)));
+  ok('шаг профиля 5 км ≈ 6 м', near(step(5000), 6, 0.1), step(5000).toFixed(1) + ' м');
+  ok('шаг профиля 12 км ≤ 7 м', step(12000) <= 7, step(12000).toFixed(1) + ' м');
+  ok('шаг профиля 60 км ≤ 31 м (был 150)', step(60000) <= 31, step(60000).toFixed(1) + ' м');
+}
+{ // лес интегрируется по всей трассе, включая хвост у второй антенны
+  const mk = (d, N) => { const p = []; for (let i = 0; i < N; i++) { const t = (i + 0.5) / N; p.push({ t, u: d * t, g: 0, fo: true, s: 20 }); } return p; };
+  for (const d of [100, 1000]) {
+    const N = Math.max(16, Math.min(2000, Math.round(d / 6)));
+    const len = E.vegStretches(mk(d, N), d, 1, 1).reduce((s, x) => s + x.len, 0);
+    ok(`полностью лесная трасса ${d} м учтена целиком`, near(len, d, 1e-6), len.toFixed(3) + ' м');
+  }
+}
+{ // числовые поля: дробная мощность не усекается, мусор не даёт NaN
+  const a = { ...ADM, tx: 13.8 }, b = { ...GRD, tx: 13.8 };
+  const m1 = E.link(a, b, {}).margin, m2 = E.link({ ...a, tx: 13 }, { ...b, tx: 13 }, {}).margin;
+  ok('дробный tx учитывается', Math.abs(m1 - m2) > 0.5, `${m1.toFixed(2)} vs ${m2.toFixed(2)}`);
+  const junk = E.link({ ...ADM, tx: 'ага', h: null }, { ...GRD, g: undefined }, {});
+  ok('мусорные поля не дают NaN', Number.isFinite(junk.margin), junk.margin.toFixed(1));
+}
+{ // wifi: ветви Вайсбергера сшиты, зона монотонно убывает с расстоянием
+  ok('Weissberger непрерывен на 14 м', Math.abs(E.wfWeissberger(14.001) - E.wfWeissberger(13.999)) < 0.01,
+    (E.wfWeissberger(14.001) - E.wfWeissberger(13.999)).toFixed(5) + ' dB');
+  ok('Weissberger монотонен', E.wfWeissberger(10) < E.wfWeissberger(50) && E.wfWeissberger(50) < E.wfWeissberger(200));
+}
+{ // отдельные поля потерь: pl — полные, freeSpace — чистое свободное пространство
+  const L = E.link(ADM, GRD, {});
+  ok('freeSpace ≤ pl', L.freeSpace <= L.pl + 1e-9, `${L.freeSpace.toFixed(1)} ≤ ${L.pl.toFixed(1)}`);
+  ok('freeSpace = FSPL(d)', near(L.freeSpace, E.fsplOf(L.d), 1e-9));
+}
+
 console.log(fail ? `\n${fail}/${n} FAILED` : `\nall ${n} passed`);
 process.exitCode = fail ? 1 : 0;
