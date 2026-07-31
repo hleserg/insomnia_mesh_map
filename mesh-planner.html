@@ -276,7 +276,7 @@ function airInfo(){
     `${(cap*60).toFixed(0)} сообщ./мин</b> устойчиво`;
 }
 // wifi-зона включена сразу: ради неё узлы и расставляются, искать её в слоях не должно
-const LAY={water:1,forest:1,zones:1,roads:1,poi:1,fast:0,cov:1,dem:1,noise:1,links:1,all:0,labels:1};
+const LAY={water:1,forest:1,zones:1,roads:1,poi:1,fast:0,cov:1,dem:1,iso:1,noise:1,links:1,all:0,labels:1};
 let nodes=[], noises=[], groves=[], sel=-1, selN=-1, selG=-1, selLink=null, dem=null, mode='node';
 let groveR=60;
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
@@ -729,20 +729,95 @@ function resize(){DPR=Math.min(2,window.devicePixelRatio||1);
   ctx.setTransform(DPR,0,0,DPR,0,0);
   pcv.width=pcv.clientWidth*DPR;pcv.height=132*DPR;pctx.setTransform(DPR,0,0,DPR,0,0);}
 
+// Сетка высот по видимой области — считается один раз за кадр и переиспользуется
+// заливкой рельефа и горизонталями.
+let demG=null, demKey='';
+function demGrid(){
+  const step=Math.max(12,Math.round(18/view.s));
+  const x0=Math.floor(ux(0)/step)*step, y0=Math.floor(uy(H)/step)*step;
+  const nx=Math.min(300,Math.ceil((ux(W)-x0)/step)+2), ny=Math.min(300,Math.ceil((uy(0)-y0)/step)+2);
+  const key=[x0,y0,step,nx,ny,dem?dem.name:'-'].join('|');
+  if(demG&&demKey===key) return demG;            // вид не менялся — сетку не пересчитываем
+  const z=new Float32Array(nx*ny), ok=new Uint8Array(nx*ny);
+  for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+    const X=x0+i*step, Y=y0+j*step;
+    demOut=false; z[j*nx+i]=ground(X,Y); ok[j*nx+i]=demOut?0:1;   // вне окна данных не рисуем
+  }
+  demKey=key;
+  return {z,ok,nx,ny,step,x0,y0};
+}
+// Горизонтали методом marching squares. Шаг подбирается под масштаб: чем ближе,
+// тем чаще линии; каждая пятая — жирная с подписью высоты.
+function drawIso(){
+  if(!demG) return;
+  const {z,ok,nx,ny,step,x0,y0}=demG;
+  const iso = view.s>0.7 ? 2 : view.s>0.3 ? 5 : 10;
+  const majStep = iso===2 ? 10 : iso===5 ? 20 : 50;   // подписанных линий должно быть видно
+  const minor=[], major=[], labels=[];
+  // один проход по ячейкам: для каждой перебираем только уровни в её диапазоне высот
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){
+    if(!(ok[j*nx+i]&&ok[j*nx+i+1]&&ok[(j+1)*nx+i+1]&&ok[(j+1)*nx+i])) continue;
+    const a=z[j*nx+i], b=z[j*nx+i+1], c=z[(j+1)*nx+i+1], d=z[(j+1)*nx+i];
+    const lo=Math.min(a,b,c,d), hi=Math.max(a,b,c,d);
+    const h0=Math.ceil(lo/iso)*iso;
+    if(h0>hi) continue;
+    const X=x0+i*step, Y=y0+j*step;
+    for(let h=h0;h<=hi;h+=iso){
+      const P=[];
+      const ed=(za,zb,xa,ya,xb,yb)=>{ if((za<h)!==(zb<h)){ const t=(h-za)/(zb-za);
+        P.push(xa+(xb-xa)*t, ya+(yb-ya)*t); } };
+      ed(a,b,X,Y,X+step,Y); ed(b,c,X+step,Y,X+step,Y+step);
+      ed(c,d,X+step,Y+step,X,Y+step); ed(d,a,X,Y+step,X,Y);
+      if(P.length>=4){
+        const isMaj=Math.abs(h/majStep-Math.round(h/majStep))<1e-6;
+        (isMaj?major:minor).push(P[0],P[1],P[2],P[3]);
+        if(isMaj&&labels.length<28&&i%16===0&&j%11===0) labels.push([P[0],P[1],h]);
+      }
+    }
+  }
+  const stroke=(arr,style,w)=>{
+    if(!arr.length) return;
+    ctx.strokeStyle=style; ctx.lineWidth=w; ctx.beginPath();
+    for(let k=0;k<arr.length;k+=4){ ctx.moveTo(sx(arr[k]),sy(arr[k+1])); ctx.lineTo(sx(arr[k+2]),sy(arr[k+3])); }
+    ctx.stroke();
+  };
+  stroke(minor,'rgba(190,170,140,.34)',1);
+  stroke(major,'rgba(214,180,120,.8)',1.6);
+  if(LAY.labels&&view.s>0.12){
+    ctx.font='9px ui-monospace,monospace'; ctx.textAlign='center';
+    for(const [lx,ly,h] of labels){
+      const X=sx(lx), Y=sy(ly);
+      if(X<0||X>W||Y<0||Y>H) continue;
+      ctx.strokeStyle='#0d1117'; ctx.lineWidth=3; ctx.strokeText(h+'',X,Y+3);
+      ctx.fillStyle='rgba(230,200,150,.95)'; ctx.fillText(h+'',X,Y+3);
+    }
+  }
+}
 function draw(){
   ctx.fillStyle='#0d1117';ctx.fillRect(0,0,W,H);
   // рельеф — затенение
-  if(LAY.dem){
-    const LO=dem?dem.lo:BD.lo, HI=dem?dem.hi:BD.hi;
-    const st=Math.max(18,26/view.s), rng=Math.max(1,HI-LO);
-    for(let x=ux(0);x<ux(W);x+=st)for(let y=uy(H);y<uy(0);y+=st){
-      const g=ground(x,y);
-      const gx=(ground(x+st,y)-ground(x-st,y))/(2*st), gy=(ground(x,y+st)-ground(x,y-st))/(2*st);
-      const sh=Math.max(0,Math.min(1,0.5+(gx*0.7+gy*0.7)*6));
-      const t=(g-LO)/rng;
-      const r=Math.round(20+t*34+sh*22), gg=Math.round(26+t*30+sh*20), b=Math.round(34+t*22+sh*16);
-      ctx.fillStyle=`rgb(${r},${gg},${b})`;
-      ctx.fillRect(sx(x),sy(y+st),st*view.s+1,st*view.s+1);
+  // [Fix-24] Рельеф был почти не виден: перепад 63 м укладывался в диапазон яркости
+  // 20→76 и тонул под заливкой леса. Теперь сетка высот считается один раз и питает
+  // и гипсометрию с затенением, и слой горизонталей.
+  if(LAY.dem||LAY.iso) demG=demGrid();
+  if(LAY.dem&&demG){
+    const {z,ok,nx,ny,step,x0,y0}=demG;
+    const LO=dem?dem.lo:BD.lo, HI=dem?dem.hi:BD.hi, rng=Math.max(1,HI-LO);
+    const s=step*view.s+1;
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){
+      if(!ok[j*nx+i]) continue;
+      const g=z[j*nx+i];
+      // затенение: солнце с северо-запада, наклон по соседним ячейкам сетки
+      const gx=(z[j*nx+Math.min(i+1,nx-1)]-z[j*nx+Math.max(i-1,0)])/(2*step);
+      const gy=(z[Math.min(j+1,ny-1)*nx+i]-z[Math.max(j-1,0)*nx+i])/(2*step);
+      const sh=Math.max(0,Math.min(1,0.55+(gx*0.75+gy*0.75)*9));
+      const t=Math.max(0,Math.min(1,(g-LO)/rng));
+      // низины сине-зелёные, гребни песочные — в палитре интерфейса, но с контрастом
+      const r=Math.round((26+t*112)*(0.55+sh*0.75));
+      const gg=Math.round((38+t*96)*(0.55+sh*0.75));
+      const b=Math.round((48+t*46)*(0.55+sh*0.75));
+      ctx.fillStyle=`rgb(${Math.min(255,r)},${Math.min(255,gg)},${Math.min(255,b)})`;
+      ctx.fillRect(sx(x0+i*step)-s/2,sy(y0+j*step)-s/2,s,s);
     }
   }
   if(LAY.water){ctx.fillStyle='#13293d';ctx.strokeStyle='#1d3e5c';ctx.lineWidth=1;
@@ -750,7 +825,7 @@ function draw(){
     ctx.strokeStyle='#1d3e5c';ctx.lineWidth=2;DATA.wline.forEach(p=>{poly(p,0);ctx.stroke();});}
   if(LAY.forest){
     const s=FM.step*view.s+1;
-    ctx.fillStyle='rgba(31,64,38,.72)';
+    ctx.fillStyle='rgba(31,64,38,.52)';   // полупрозрачнее: под лесом виден рельеф
     const i0=Math.max(0,Math.floor((ux(0)-FM.x0)/FM.step)), i1=Math.min(FM.nx-1,Math.ceil((ux(W)-FM.x0)/FM.step));
     const j0=Math.max(0,Math.floor((uy(H)-FM.y0)/FM.step)), j1=Math.min(FM.ny-1,Math.ceil((uy(0)-FM.y0)/FM.step));
     for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)
@@ -807,6 +882,7 @@ function draw(){
         ctx.fillStyle='#f85149';ctx.fillText(s.name,X,Y-13);}
     });
   }
+  if(LAY.iso) drawIso();      // горизонтали поверх заливок, но под линками и узлами
   if(LAY.poi){ctx.fillStyle='#3c4450';
     DATA.poi.forEach(p=>{ctx.beginPath();ctx.arc(sx(p[0]),sy(p[1]),2.2,0,7);ctx.fill();});}
 
@@ -1005,7 +1081,10 @@ function ui(){
     nb.innerHTML=`
       <input type="text" id="nname" value="${n.name.replace(/"/g,'&quot;')}">
       <div class="hint" id="ncoord" style="cursor:pointer" title="клик — скопировать">
-        ${w2lat(n.y).toFixed(6)}, ${w2lng(n.x).toFixed(6)}</div>
+        ${w2lat(n.y).toFixed(6)}, ${w2lng(n.x).toFixed(6)}<br>
+        отметка земли <b style="color:var(--fg)">${ground(n.x,n.y).toFixed(0)} м</b>,
+        антенна на <b style="color:var(--fg)">${(ground(n.x,n.y)+(+n.h||0)).toFixed(0)} м</b> ·
+        ${forestState(n.x,n.y)==='forest'?'лес':forestState(n.x,n.y)==='open'?'открыто':'вне маски'}</div>
       <div class="row"><label>роль</label></div>
       <select id="nrole">
         <option value="0"${n.role===0?' selected':''}>companion — точка wifi, не ретранслирует</option>
@@ -1066,7 +1145,8 @@ function ui(){
   }
   const lay=document.getElementById('layers');
   const NAMES={water:'вода',forest:'лес',zones:'зоны',roads:'дороги',poi:'poi',
-               fast:'номинал орг. 400 м',cov:'wifi-зона',dem:'рельеф',noise:'шум',links:'линки',all:'все линки',labels:'подписи'};
+               fast:'номинал орг. 400 м',cov:'wifi-зона',dem:'рельеф',iso:'горизонтали',
+               noise:'шум',links:'линки',all:'все линки',labels:'подписи'};
   lay.innerHTML=Object.keys(NAMES).map(k=>
     `<button class="btn${LAY[k]?' on':''}" data-k="${k}">${NAMES[k]}</button>`).join('');
   lay.querySelectorAll('button').forEach(b=>b.onclick=()=>{
@@ -1079,7 +1159,9 @@ function ui(){
        по полю: ${dem.lo.toFixed(0)}–${dem.hi.toFixed(0)} м, перепад ${(dem.hi-dem.lo).toFixed(0)} м</div>
        <div class="btns"><button class="btn danger" id="demoff">убрать рельеф</button></div>`
     : `<div class="warnbox okbox">Встроен SRTM N54E035, шаг 90 м<br>
-       по полю: ${BD.lo}–${BD.hi} м, перепад ${BD.hi-BD.lo} м</div>
+       по полю: ${BD.lo}–${BD.hi} м, перепад ${BD.hi-BD.lo} м<br>
+       <span style="color:var(--mute)">слой «горизонтали»: линии через 2/5/10 м по масштабу,
+       каждая пятая жирная с подписью высоты</span></div>
        <div class="hint">Дифракция, перекрытия и профили считаются по нему. Можно подменить своим .hgt — брось файл в окно.</div>
        <div class="btns"><button class="btn" id="demload">свой .hgt</button></div>`;
   if(dem) document.getElementById('demoff').onclick=()=>{dem=null;covCache=null;draw();ui();};
