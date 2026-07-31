@@ -885,6 +885,8 @@ function status(G){
     (fl>5?` · <s style="color:var(--warn)">через лес: ${fl.toFixed(0)} м</s>`:'')+
     (()=>{const nz=nodes.filter(n=>noiseRise(n.x,n.y)>3).length;
       return nz?` · <s style="color:var(--err)">в шуме: ${nz}</s>`:'';})()+
+    (()=>{const bad=nodes.filter(n=>(n.pwr|0)===1&&nodeWatts(n)>5).length;
+      return bad?` · <s style="color:var(--err)">без питания под wifi: ${bad}</s>`:'';})()+
     (dem?` · рельеф <s style="color:var(--ok)">${dem.lo.toFixed(0)}–${dem.hi.toFixed(0)} м (файл)</s>`
         :` · рельеф <s style="color:var(--ok)">${BD.lo}–${BD.hi} м</s>`);
 }
@@ -1011,6 +1013,12 @@ function ui(){
       <input type="range" id="nt" min="2" max="27" step="1" value="${n.tx}">
       <div class="row"><label>усиление антенны</label><b><span id="vg">${n.g}</span> dBi</b></div>
       <input type="range" id="ng" min="0" max="12" step="1" value="${n.g}">
+      <div class="row"><label>питание</label></div>
+      <select id="npwr">
+        <option value="0"${(n.pwr|0)===0?' selected':''}>сеть / генератор объекта</option>
+        <option value="1"${(n.pwr|0)===1?' selected':''}>автономно (батарея, солнце)</option>
+      </select>
+      ${powerNote(n)}
       <div class="row"><label>антенна</label></div>
       <select id="nant">
         <option value="0"${(n.ant|0)===0?' selected':''}>всенаправленная</option>
@@ -1027,11 +1035,13 @@ function ui(){
         ${noiseRise(n.x,n.y)>6?'<br>→ отнеси узел дальше от источника':''}</div>
       <div class="btns"><button class="btn danger" id="ndel">удалить узел</button></div>`;
     document.getElementById('nname').oninput=e=>{n.name=e.target.value;draw();tbl();};
-    document.getElementById('nrole').onchange=e=>{n.role=+e.target.value;draw();tbl();};
+    document.getElementById('nrole').onchange=e=>{n.role=+e.target.value;
+      covCache=null;if(LAY.cov)coverage();draw();ui();tbl();};   // роль меняет wifi и энергетику
     document.getElementById('ncoord').onclick=()=>{
       const s=w2lat(n.y).toFixed(6)+', '+w2lng(n.x).toFixed(6);
       if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(s);
     };
+    document.getElementById('npwr').onchange=e=>{n.pwr=+e.target.value;draw();ui();tbl();};
     document.getElementById('nant').onchange=e=>{n.ant=+e.target.value;
       document.getElementById('azbox').style.display=n.ant?'block':'none';draw();tbl();};
     document.getElementById('naz').oninput=e=>{n.az=+e.target.value;
@@ -1066,6 +1076,30 @@ function ui(){
   if(dem) document.getElementById('demoff').onclick=()=>{dem=null;covCache=null;draw();ui();};
   else document.getElementById('demload').onclick=()=>{fin.accept='.hgt';fin.click();};
   tbl();
+}
+// [Fix-23] Энергетика узла. LoRa-модуль ест 0.3 Вт — автономен где угодно; wifi-точка
+// UniFi XG с PoE и роутером ест ~21 Вт, за 4 суток это 2 кВт·ч ≈ 33 кг LiFePO4, а под
+// пологом леса солнце даёт ~28 Вт·ч/сут при потребности 511 — автономный wifi невозможен.
+const PWR={lora:0.30, server:0.45, wifi:21.3};
+function nodeWatts(n){
+  const base=n.role===1?PWR.server:PWR.lora;
+  return base+(n.role!==2?PWR.wifi:0);      // wifi раздают все, кроме repeater
+}
+function powerNote(n){
+  const w=nodeWatts(n), days=4, wh=w*24*days, ah=wh/0.8/0.85/12;
+  const autonomous=(n.pwr|0)===1;
+  const heavy=w>5;
+  if(!autonomous)
+    return `<div class="hint">Потребление ≈${w.toFixed(1)} Вт · за ${days} сут ${wh.toFixed(0)} Вт·ч.
+      Нужна розетка объекта или генератор.</div>`;
+  if(!heavy)
+    return `<div class="warnbox okbox">Автономно: ≈${w.toFixed(1)} Вт · ${wh.toFixed(0)} Вт·ч за ${days} сут —
+      хватит пауэрбанка ${(Math.ceil(wh/3.7/0.85)*1000).toLocaleString('ru')} мА·ч
+      (${ah.toFixed(1)} Ач@12В). Солнце не обязательно.</div>`;
+  return `<div class="warnbox">⚠ Автономный wifi: ≈${w.toFixed(1)} Вт · ${wh.toFixed(0)} Вт·ч за ${days} сут =
+    ${ah.toFixed(0)} Ач@12В (~${(wh/0.8/0.85/90).toFixed(0)} кг LiFePO4)${inForest(n.x,n.y)?
+    ', а под пологом солнце даёт ~28 Вт·ч/сут при нужде 511':''}.
+    Реально только от сети/генератора. Иначе — сделай узел repeater (wifi выключится, останется 0.3 Вт).</div>`;
 }
 function noiseRiseOf(lvl,d){
   const p=lvl-10*R.nn*Math.log10(d/10), n0=NTH();
