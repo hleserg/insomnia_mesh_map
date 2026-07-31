@@ -590,7 +590,7 @@ function wifiAPs(){
 }
 let covCache=null;
 function coverage(){
-  const step=45, B=DATA.bbox, cells=[];
+  const step=30, B=DATA.bbox, cells=[];   // мельче: лесные зоны 60-75 м должны быть видны
   const aps=wifiAPs();
   const lim=WF.plmax-(R.wifiFade||0);
   for(let x=B[0]-150;x<=B[2]+150;x+=step)for(let y=B[1]-150;y<=B[3]+150;y+=step){
