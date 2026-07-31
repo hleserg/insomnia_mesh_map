@@ -68,6 +68,15 @@ tr.r{cursor:pointer}tr.r:hover{background:#1c222b}tr.sel{background:#1f2a1f}
 #profcv{display:block;width:100%;height:132px}
 #profhd{font-size:10.5px;color:var(--mute);padding:4px 10px 0}
 #profhd s{text-decoration:none;color:var(--fg)}
+#float{position:fixed;left:12px;top:64px;width:254px;max-width:86vw;background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:8px 10px;z-index:18;display:none;
+  box-shadow:0 8px 24px rgba(0,0,0,.55)}
+#float.on{display:block}
+#fhead{cursor:move;color:var(--ok);font-size:11px;font-weight:700;letter-spacing:.06em;
+  border-bottom:1px solid var(--line);padding-bottom:4px;margin-bottom:6px;user-select:none}
+#fclose{float:right;cursor:pointer;color:var(--mute);font-size:13px;line-height:1}
+#fclose:hover{color:var(--err)}
+#stog{float:right;margin-left:8px;padding:2px 8px}
 #mob{display:none}
 @media(max-width:760px){
   #body{flex-direction:column}
@@ -79,6 +88,7 @@ tr.r{cursor:pointer}tr.r:hover{background:#1c222b}tr.sel{background:#1f2a1f}
 <div id="app">
 <header>
   <div class="enso">&#9711;</div>
+  <button class="btn" id="stog">свернуть панель</button>
   <div class="cmd">mesh:~$ <b>planner</b> --site bessonnica --fw meshcore --band <span id="fq">868.7</span>MHz</div>
   <div id="stat"></div>
 </header>
@@ -197,6 +207,7 @@ tr.r{cursor:pointer}tr.r:hover{background:#1c222b}tr.sel{background:#1f2a1f}
   <canvas id="profcv"></canvas>
 </div>
 </div>
+<div id="float"><div id="fhead">ВЫБРАННОЕ <span id="fclose">&times;</span></div><div id="fbody"></div></div>
 <div id="drop"><div>брось сюда .hgt или .json проекта</div></div>
 <input type="file" id="fin" style="display:none">
 <script>
@@ -232,13 +243,30 @@ let view={cx:(VW[0]+VW[2])/2, cy:(VW[1]+VW[3])/2, s:0.25};
 let W=0,H=0,DPR=1;
 
 const lam=()=>300/R.fMHz;
+// [Fix-13] Метрика WGS-84: вшитые координаты — метры локальной проекции с константами
+// генерации данных (110574 и 111320·K); истинный метр на широте 54.68° длиннее:
+// 1° широты = 111317.6 м (+0.67%), 1° долготы = 64502.4 м (+0.22%). Геопривязка данных
+// не меняется (w2lat/w2lng — определение проекции), а все РАССТОЯНИЯ считаются честно.
+const PHI0=LAT0*Math.PI/180;
+const KYm=(111132.954-559.822*Math.cos(2*PHI0)+1.175*Math.cos(4*PHI0))/110574;
+const KXm=(111412.84*Math.cos(PHI0)-93.5*Math.cos(3*PHI0)+0.118*Math.cos(5*PHI0))/(111320*KK);
+const dist=(ax,ay,bx,by)=>Math.hypot((ax-bx)*KXm,(ay-by)*KYm);
+// [Fix-14] Направленные антенны: панель ~70° HPBW, front/back 15 dB (типовая патч 8 dBi).
+// az: 0° = север, по часовой. Усиление к цели = g − min(12·(Δ/70)², 15).
+const bearingTo=(n,tx,ty)=>(Math.atan2((tx-n.x)*KXm,(ty-n.y)*KYm)*180/Math.PI+360)%360;
+function gainToward(n,tx,ty){
+  const g=n.g|0;
+  if(!(n.ant|0)) return g;
+  let da=Math.abs(bearingTo(n,tx,ty)-(+n.az||0))%360; if(da>180)da=360-da;
+  return g-Math.min(12*Math.pow(da/70,2),15);
+}
 const SNRL={7:-7.5,8:-10,9:-12.5,10:-15,11:-17.5,12:-20};
 const NTH=()=>-174+10*Math.log10(R.BW*1000)+R.NF;      // тепловой пол в полосе
 Object.defineProperty(R,'sens',{get(){return NTH()+SNRL[R.SF];}});
 function noiseAt(x,y){                                  // суммарная помеха, dBm
   let lin=0;
   for(const s of noises){
-    const d=Math.max(3,Math.hypot(s.x-x,s.y-y));
+    const d=Math.max(3,dist(s.x,s.y,x,y));
     const p=DATA.ntypes[s.t][1]-10*R.nn*Math.log10(d/10);
     lin+=Math.pow(10,p/10);
   }
@@ -312,7 +340,7 @@ function J(v){ return v>-0.78 ? 6.9+20*Math.log10(Math.sqrt((v-0.1)*(v-0.1)+1)+v
 // одинаковый для графа, профиля и длины леса. Раньше graph() брал 18 точек, профиль 44 —
 // вердикты расходились до 1.3 dB, роща 60 м могла целиком проскочить между точками (−12.8 dB).
 function profileOf(A,B){
-  const d=Math.hypot(A.x-B.x,A.y-B.y);
+  const d=dist(A.x,A.y,B.x,B.y);
   const N=Math.max(16,Math.min(400,Math.round(d/6)));
   const foA=inForest(A.x,A.y), foB=inForest(B.x,B.y);
   const excl=Math.min(40,d*0.15);   // ITU-R P.833: полог прямо над антенной — это связь в полог, не лезвие
@@ -446,12 +474,14 @@ function clutterLoss(A,B){
 
 function link(A,B,opt){
   opt=opt||{};
-  const d=Math.hypot(A.x-B.x,A.y-B.y);
+  const d=dist(A.x,A.y,B.x,B.y);
   if(d<1) return {d:0,margin:99,ok:true,fspl:0,ldif:0,lfor:0,lclt:0,prx:0,mech:'-',flen:0,nrA:0,nrB:0,dbp:20,prof:null};
-  const txp=(A.tx|0)+(A.g|0)+(B.g|0);
+  // [Fix-14] усиление антенн — в сторону корреспондента (взаимно для обоих направлений)
+  const gA=gainToward(A,B.x,B.y), gB=gainToward(B,A.x,A.y);
+  const txp=(A.tx|0)+gA+gB;
   // [Fix-9] Ранний отсев по нижней границе потерь: FSPL ≤ реальные потери, бюджет — по
   // худшему направлению (min tx). При запросе профиля не выходим — он нужен для отрисовки.
-  const txMin=Math.min(A.tx|0,B.tx|0)+(A.g|0)+(B.g|0);
+  const txMin=Math.min(A.tx|0,B.tx|0)+gA+gB;
   if(!opt.prof && txMin-fsplOf(d)-R.sens-R.margin < -40)
     return {d,margin:-999,ok:false,fspl:fsplOf(d),ldif:0,lfor:0,lclt:0,prx:-999,mech:'-',flen:0,nrA:0,nrB:0,dbp:20,prof:null};
   const P=profileOf(A,B), pts=P.pts;
@@ -468,7 +498,7 @@ function link(A,B,opt){
   const loss=pl+fe.excess+lclt;
   const nrA=noiseRise(A.x,A.y), nrB=noiseRise(B.x,B.y);
   const pAB=txp-loss, mAB=pAB-(R.sens+nrB)-R.margin;
-  const pBA=(B.tx|0)+(B.g|0)+(A.g|0)-loss, mBA=pBA-(R.sens+nrA)-R.margin;
+  const pBA=(B.tx|0)+gB+gA-loss, mBA=pBA-(R.sens+nrA)-R.margin;
   const margin=Math.min(mAB,mBA), prx=mAB<=mBA?pAB:pBA;
   let prof=null;
   if(opt.prof){
@@ -476,7 +506,18 @@ function link(A,B,opt){
       F:17.31*Math.sqrt((p.u/1000)*((d-p.u)/1000)/((R.fMHz/1000)*(d/1000)))}));
   }
   return {d,fspl:pl,ldif:fe.ldif,lfor:fe.lfor,lclt,prx,vmax:fe.vmax,nrA,nrB,margin,dbp,
-          heff:[eh.hA,eh.hB],flen:fe.flen,mech:fe.mech,noRef,ok:margin>=0,prof};
+          heff:[eh.hA,eh.hB],flen:fe.flen,mech:fe.mech,noRef,gA,gB,ok:margin>=0,prof};
+}
+// План антенн из спецификации: companion — панель на repeater (ГРЯДА), room server —
+// панель на repeater, сам repeater — всенаправленная коллинеарка. Только для узлов,
+// у которых антенна ещё не задана (импортированные планы не трогаем).
+function applyAntennaPlan(){
+  const rep=nodes.find(n=>n.role===2)||nodes.find(n=>n.role===1);
+  nodes.forEach(n=>{
+    if(n.ant!==undefined) return;
+    if(n.role===2||!rep||rep===n){n.ant=0;n.az=0;}
+    else {n.ant=1;n.az=Math.round(bearingTo(n,rep.x,rep.y));}
+  });
 }
 // ---------- граф ----------
 const relays=i=>nodes[i].role!==0;      // ретранслируют только repeater и room server
@@ -508,7 +549,7 @@ function coverage(){
   for(let x=B[0]-150;x<=B[2]+150;x+=step)for(let y=B[1]-150;y<=B[3]+150;y+=step){
     let best=1e9, host=-1;
     for(const o of pts){
-      const d=Math.hypot(o.n.x-x,o.n.y-y);
+      const d=dist(o.n.x,o.n.y,x,y);
       if(d<best){best=d;host=o.i;}
     }
     if(host<0) continue;
@@ -617,7 +658,12 @@ function draw(){
         const mx=(sx(nodes[e.a].x)+sx(nodes[e.b].x))/2, my=(sy(nodes[e.a].y)+sy(nodes[e.b].y))/2;
         ctx.font='10px ui-monospace,monospace';ctx.textAlign='center';
         ctx.strokeStyle='#0d1117';ctx.lineWidth=3;
-        const t=Math.round(e.L.d)+'м '+(m>0?'+':'')+m.toFixed(0);
+        let t=Math.round(e.L.d)+'м '+(m>0?'+':'')+m.toFixed(0);
+        if(m<15){ // подсветка виновника потерь на слабом линке
+          const cand=[['лес',e.L.lfor||0],['рельеф',e.L.ldif||0],['толпа',e.L.lclt||0],
+                      ['шум',Math.max(e.L.nrA||0,e.L.nrB||0)]].sort((p,q)=>q[1]-p[1])[0];
+          if(cand[1]>=3) t+=' ·'+cand[0];
+        }
         ctx.strokeText(t,mx,my-3);ctx.fillStyle='#8b949e';ctx.fillText(t,mx,my-3);}
     });
   }
@@ -632,6 +678,13 @@ function draw(){
     else if(n.role===2){ctx.arc(X,Y,9,0,7);}
     else {ctx.rect(X-8,Y-8,16,16);}
     ctx.fill();ctx.stroke();
+    if(n.ant|0){ // стрелка азимута панели
+      const az=(+n.az||0)*Math.PI/180;
+      ctx.strokeStyle=COL;ctx.lineWidth=2;ctx.beginPath();
+      ctx.moveTo(X+Math.sin(az)*11,Y-Math.cos(az)*11);
+      ctx.lineTo(X+Math.sin(az)*21,Y-Math.cos(az)*21);ctx.stroke();
+      ctx.beginPath();ctx.arc(X+Math.sin(az)*21,Y-Math.cos(az)*21,2,0,7);ctx.fill();
+    }
     if(i===sel){ctx.strokeStyle='#a371f7';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X,Y,15,0,7);ctx.stroke();}
     if(LAY.labels&&view.s>0.10){
       ctx.font='700 10px ui-monospace,monospace';ctx.textAlign='center';
@@ -641,13 +694,14 @@ function draw(){
       ctx.font='9px ui-monospace,monospace';
       ctx.strokeText(h,X,Y+32);ctx.fillStyle='#8b949e';ctx.fillText(h,X,Y+32);}
   });
-  // масштабная линейка
-  const target=90/view.s, pow=Math.pow(10,Math.floor(Math.log10(target)));
+  // масштабная линейка — в истинных метрах WGS-84 ([Fix-13])
+  const target=90/view.s*KXm, pow=Math.pow(10,Math.floor(Math.log10(target)));
   const nice=[1,2,5,10].map(k=>k*pow).find(v=>v>=target)||pow*10;
+  const nicePx=nice/KXm*view.s;
   ctx.strokeStyle='#8b949e';ctx.lineWidth=1;ctx.beginPath();
-  ctx.moveTo(12,H-14);ctx.lineTo(12+nice*view.s,H-14);
+  ctx.moveTo(12,H-14);ctx.lineTo(12+nicePx,H-14);
   ctx.moveTo(12,H-18);ctx.lineTo(12,H-10);
-  ctx.moveTo(12+nice*view.s,H-18);ctx.lineTo(12+nice*view.s,H-10);ctx.stroke();
+  ctx.moveTo(12+nicePx,H-18);ctx.lineTo(12+nicePx,H-10);ctx.stroke();
   ctx.font='10px ui-monospace,monospace';ctx.textAlign='left';ctx.fillStyle='#8b949e';
   ctx.fillText(nice>=1000?(nice/1000)+' км':nice+' м',14,H-20);
   status(G);
@@ -741,7 +795,13 @@ function drawProfile(){
 }
 // ---------- UI ----------
 function ui(){
-  const nb=document.getElementById('nodebox');
+  // [UI] параметры выбранного — в плавающем окне поверх карты, панель не пухнет
+  const nb0=document.getElementById('nodebox'), fw=document.getElementById('float');
+  const active=(selG>=0&&groves[selG])||(selN>=0&&noises[selN])||(sel>=0&&nodes[sel]);
+  const nb=active?document.getElementById('fbody'):nb0;
+  if(active){fw.classList.add('on');
+    nb0.innerHTML='<div class="hint">Параметры выбранного — в плавающем окне на карте.</div>';}
+  else fw.classList.remove('on');
   if(selG>=0&&groves[selG]){
     const g=groves[selG];
     nb.innerHTML=`<div class="hint">Пятно зарослей.</div>
@@ -773,6 +833,8 @@ function ui(){
     const n=nodes[sel];
     nb.innerHTML=`
       <input type="text" id="nname" value="${n.name.replace(/"/g,'&quot;')}">
+      <div class="hint" id="ncoord" style="cursor:pointer" title="клик — скопировать">
+        ${w2lat(n.y).toFixed(6)}, ${w2lng(n.x).toFixed(6)}</div>
       <div class="row"><label>роль</label></div>
       <select id="nrole">
         <option value="0"${n.role===0?' selected':''}>companion — точка wifi, не ретранслирует</option>
@@ -785,6 +847,15 @@ function ui(){
       <input type="range" id="nt" min="2" max="27" step="1" value="${n.tx}">
       <div class="row"><label>усиление антенны</label><b><span id="vg">${n.g}</span> dBi</b></div>
       <input type="range" id="ng" min="0" max="12" step="1" value="${n.g}">
+      <div class="row"><label>антенна</label></div>
+      <select id="nant">
+        <option value="0"${(n.ant|0)===0?' selected':''}>всенаправленная</option>
+        <option value="1"${(n.ant|0)===1?' selected':''}>панель ~70° (front/back 15 dB)</option>
+      </select>
+      <div id="azbox" style="display:${(n.ant|0)?'block':'none'}">
+        <div class="row"><label>азимут панели</label><b><span id="vaz">${n.az|0}</span>°</b></div>
+        <input type="range" id="naz" min="0" max="355" step="5" value="${n.az|0}">
+      </div>
       <div class="hint">${n.tx<=14?'':'⚠ выше 14 dBm (25 мВт) — вне безлицензионного режима 868.7–869.2'}</div>
       <div class="warnbox ${noiseRise(n.x,n.y)>3?'':'okbox'}" style="${noiseRise(n.x,n.y)>3?'':''}">
         эфирный шум здесь: <b>${noiseAt(n.x,n.y).toFixed(0)} dBm</b><br>
@@ -793,6 +864,14 @@ function ui(){
       <div class="btns"><button class="btn danger" id="ndel">удалить узел</button></div>`;
     document.getElementById('nname').oninput=e=>{n.name=e.target.value;draw();tbl();};
     document.getElementById('nrole').onchange=e=>{n.role=+e.target.value;draw();tbl();};
+    document.getElementById('ncoord').onclick=()=>{
+      const s=w2lat(n.y).toFixed(6)+', '+w2lng(n.x).toFixed(6);
+      if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(s);
+    };
+    document.getElementById('nant').onchange=e=>{n.ant=+e.target.value;
+      document.getElementById('azbox').style.display=n.ant?'block':'none';draw();tbl();};
+    document.getElementById('naz').oninput=e=>{n.az=+e.target.value;
+      document.getElementById('vaz').textContent=n.az;draw();tbl();};
     ['h','t','g'].forEach((k,i)=>{
       const f=['h','tx','g'][i], lbl=['vh','vt','vg'][i];
       document.getElementById('n'+k).oninput=e=>{n[f]=+e.target.value;
@@ -902,7 +981,7 @@ cv.addEventListener('pointerup',e=>{
         selN=noises.length-1; sel=-1; selLink=null; covCache=null;
         if(LAY.cov)coverage(); draw();ui();drawProfile();}
       else{
-        nodes.push({name:'repeater '+(nodes.length+1),x:ux(px),y:uy(py),role:nodes.length?0:1,h:6,tx:14,g:2,wifi:1});
+        nodes.push({name:'repeater '+(nodes.length+1),x:ux(px),y:uy(py),role:nodes.length?0:1,h:6,tx:14,g:2,wifi:1,ant:0,az:0});
         sel=nodes.length-1; selN=-1; selLink=null; covCache=null;
         if(LAY.cov)coverage(); draw();ui();drawProfile();}
     }
@@ -923,8 +1002,12 @@ cv.addEventListener('touchmove',e=>{
   pinch=D;},{passive:false});
 cv.addEventListener('touchend',()=>pinch=null);
 addEventListener('keydown',e=>{
-  if((e.key==='Delete'||e.key==='Backspace')&&sel>=0&&document.activeElement.tagName!=='INPUT'){
-    nodes.splice(sel,1);sel=-1;selLink=null;covCache=null;if(LAY.cov)coverage();draw();ui();drawProfile();}
+  if((e.key==='Delete'||e.key==='Backspace')&&document.activeElement.tagName!=='INPUT'){
+    if(sel>=0){nodes.splice(sel,1);sel=-1;selLink=null;}
+    else if(selN>=0){noises.splice(selN,1);selN=-1;}
+    else if(selG>=0){groves.splice(selG,1);selG=-1;}
+    else return;
+    covCache=null;if(LAY.cov)coverage();draw();ui();tbl();drawProfile();}
 });
 // ---------- параметры радио ----------
 document.getElementById('preset').onchange=e=>{
@@ -936,7 +1019,7 @@ document.getElementById('preset').onchange=e=>{
 });
 // ---------- проект ----------
 document.getElementById('bpreset').onclick=()=>{
-  nodes=DATA.preset.map(p=>Object.assign({},p));
+  nodes=DATA.preset.map(p=>Object.assign({},p)); applyAntennaPlan();
   noises=DATA.noise.map(p=>Object.assign({},p)); sel=-1;selN=-1;selLink=null;covCache=null;
   if(LAY.cov)coverage(); draw();ui();drawProfile();};
 document.getElementById('bclear').onclick=()=>{
@@ -953,8 +1036,12 @@ function loadFile(f){
   const rd=new FileReader();
   if(/\.hgt$/i.test(f.name)){rd.onload=()=>parseHGT(rd.result,f.name);rd.readAsArrayBuffer(f);}
   else{rd.onload=()=>{try{const j=JSON.parse(rd.result);
-      if(j.nodes){nodes=j.nodes;if(j.noises)noises=j.noises;if(j.groves)groves=j.groves;if(j.R)Object.assign(R,j.R);sel=-1;selLink=null;covCache=null;
-        if(LAY.cov)coverage();draw();ui();drawProfile();}
+      if(j.nodes){nodes=j.nodes;if(j.noises)noises=j.noises;if(j.groves)groves=j.groves;if(j.R)Object.assign(R,j.R);
+        // санитизация импортированного плана: числа обязаны быть числами
+        nodes.forEach(n=>{n.h=Number.isFinite(+n.h)?+n.h:12;n.tx=Number.isFinite(+n.tx)?+n.tx:14;
+          n.g=Number.isFinite(+n.g)?+n.g:2;n.ant=n.ant?1:0;n.az=Number.isFinite(+n.az)?+n.az:0;});
+        sel=-1;selN=-1;selG=-1;selLink=null;covCache=null;
+        syncSliders();if(LAY.cov)coverage();draw();ui();drawProfile();airInfo();vegInfo();}
     }catch(err){alert('Не читается: '+err.message);}};rd.readAsText(f);}
 }
 const dz=document.getElementById('drop');
@@ -967,11 +1054,36 @@ addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files[0];i
 const $=id=>document.getElementById(id);
 if($('reset')) $('reset').onclick=()=>{view={cx:(VW[0]+VW[2])/2,cy:(VW[1]+VW[3])/2,s:0.25};
   sel=-1;selN=-1;selLink=null;draw();ui();drawProfile();};
-if($('mnode')) $('mnode').onclick=()=>{mode='node';$('mnode').classList.add('on');$('mnoise').classList.remove('on');};
 const MODES={mnode:'node',mnoise:'noise',mgrove:'grove'};
 Object.keys(MODES).forEach(id=>{ if(!$(id)) return;
   $(id).onclick=()=>{mode=MODES[id];
     Object.keys(MODES).forEach(o=>$(o)&&$(o).classList.toggle('on',o===id));};});
+// синхронизация ползунков/селектов с R (после импорта плана)
+function syncSliders(){
+  [['mg','margin','vmg',0],['cl','clutter','vcl',0],['pn','n','vpn',1],['wf','wifi','vwf',0],
+   ['cp','canopy','vcp',0],['nn','nn','vnn',1]].forEach(([id,key,lbl,dg])=>{
+    if($(id)){$(id).value=R[key];$(lbl).textContent=(+R[key]).toFixed(dg);}});
+  if($('preset')) $('preset').value=R.SF+'|'+R.BW;
+  if($('veg')){const v=R.forest+'|'+R.fAm;
+    if([...$('veg').options].some(o=>o.value===v)) $('veg').value=v;}
+}
+// плавающее окно выбранного: перетаскивание за заголовок, крестик снимает выделение
+{const fw=$('float'), fh=$('fhead');
+ let fd=null;
+ if(fh){fh.addEventListener('pointerdown',e=>{
+    if(e.target.id==='fclose')return;
+    fd={x:e.clientX,y:e.clientY,l:fw.offsetLeft,t:fw.offsetTop};fh.setPointerCapture(e.pointerId);});
+  fh.addEventListener('pointermove',e=>{if(!fd)return;
+    fw.style.left=Math.max(0,fd.l+e.clientX-fd.x)+'px';
+    fw.style.top=Math.max(0,fd.t+e.clientY-fd.y)+'px';});
+  fh.addEventListener('pointerup',()=>fd=null);}
+ if($('fclose')) $('fclose').onclick=()=>{sel=-1;selN=-1;selG=-1;draw();ui();};}
+// сворачивание боковой панели — больше карты
+if($('stog')) $('stog').onclick=()=>{
+  const s=$('side'), hid=s.style.display==='none';
+  s.style.display=hid?'':'none';
+  $('stog').textContent=hid?'свернуть панель':'развернуть панель';
+  resize();draw();};
 function vegInfo(){
   const f=d=>R.fAm*(1-Math.exp(-d*R.forest/R.fAm));
   const el=$('veginfo'); if(!el) return;
@@ -988,7 +1100,7 @@ if($('nn')) $('nn').oninput=e=>{R.nn=+e.target.value;$('vnn').textContent=R.nn.t
 // ---------- старт ----------
 addEventListener('resize',()=>{resize();draw();if(selLink)drawProfile();});
 resize();
-nodes=DATA.preset.map(p=>Object.assign({},p));
+nodes=DATA.preset.map(p=>Object.assign({},p)); applyAntennaPlan();
 noises=DATA.noise.map(p=>Object.assign({},p));
 ui(); draw(); airInfo(); vegInfo();
 </script></body></html>
